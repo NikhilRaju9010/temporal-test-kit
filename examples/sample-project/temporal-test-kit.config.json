@@ -1,8 +1,15 @@
 {
   "project": "sample-project",
   "workerEntryPoint": "./src/worker.ts",
-  "taskQueues": ["default"],
+  "taskQueues": ["default", "saga"],
   "workflows": [
-    { "type": "GreetingWorkflow", "taskQueue": "default" }
+    { "type": "GreetingWorkflow", "taskQueue": "default" },
+    {
+      "type": "SagaWorkflow",
+      "taskQueue": "saga",
+      "sampleInput": { "orderId": "TEST-ORDER-001", "cardNumber": "4242424242424242", "amount": 49.99 },
+      "sagaFailurePoint": "chargeCardActivity",
+      "sensitiveDataFields": ["cardNumber"]
+    }
   ]
 }

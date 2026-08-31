@@ -1,12 +1,61 @@
 /**
- * Minimal config schema for Phase 2a: only the fields the preflight and
- * dynamic-zero-fixture engines need. The full Appendix A fixture schema
- * (signals, updates, sensitiveDataFields, features, etc.) is Phase 3 scope.
+ * Full config schema, per the build spec's Appendix A. Every field beyond
+ * `type`/`taskQueue` (and `project`/`workerEntryPoint`/`taskQueues` at the
+ * top level) is OPTIONAL by design — a blank fixture field just means the
+ * test(s) it unlocks report SKIPPED, never a validation error (spec Section
+ * 4.1). Validation here only checks TYPE SHAPE (is it an array, does an
+ * entry have the required sub-fields) — it deliberately does not validate
+ * the CONTENTS of free-form fields like `sampleInput`/`payload`/
+ * `validInput`/`invalidInput` (arbitrary JSON, checked only by JSON.parse
+ * succeeding at load time), since the tool has no way to know what shape a
+ * given project's workflow/activity actually expects.
  */
+
+export interface SignalConfig {
+  name: string;
+  payload: unknown;
+}
+
+export interface QueryConfig {
+  name: string;
+}
+
+export interface UpdateConfig {
+  name: string;
+  validInput: unknown;
+  invalidInput: unknown;
+}
 
 export interface WorkflowConfig {
   type: string;
   taskQueue: string;
+  sampleInput?: unknown;
+  isLongRunning?: boolean;
+  usesTimers?: boolean;
+  signals?: SignalConfig[];
+  queries?: QueryConfig[];
+  updates?: UpdateConfig[];
+  sagaFailurePoint?: string;
+  idempotencyTestActivity?: string;
+  hasCleanupOnCancel?: boolean;
+  hasChildWorkflows?: boolean;
+  sensitiveDataFields?: string[];
+  dependencyOutageTestActivity?: string;
+}
+
+export interface FeaturesConfig {
+  childWorkflows?: boolean;
+  nexus?: boolean;
+  schedules?: boolean;
+  scheduleWorkflowId?: string;
+  searchAttributes?: boolean;
+  customSearchAttributeKeys?: string[];
+  localActivities?: boolean;
+  updates?: boolean;
+  updateWithStart?: boolean;
+  workerVersioning?: boolean;
+  customDataConverter?: boolean;
+  dataConverterModulePath?: string | null;
 }
 
 export interface TestKitConfig {
@@ -14,11 +63,154 @@ export interface TestKitConfig {
   workerEntryPoint: string;
   taskQueues: string[];
   workflows: WorkflowConfig[];
+  features?: FeaturesConfig;
+  outputDir?: string;
 }
 
 export interface ValidationResult {
   valid: boolean;
   errors: string[];
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function validateSignal(value: unknown, path: string, errors: string[]): void {
+  if (!isPlainObject(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (typeof value.name !== "string" || value.name.length === 0) {
+    errors.push(`${path}.name is required and must be a string`);
+  }
+}
+
+function validateQuery(value: unknown, path: string, errors: string[]): void {
+  if (!isPlainObject(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (typeof value.name !== "string" || value.name.length === 0) {
+    errors.push(`${path}.name is required and must be a string`);
+  }
+}
+
+function validateUpdate(value: unknown, path: string, errors: string[]): void {
+  if (!isPlainObject(value)) {
+    errors.push(`${path} must be an object`);
+    return;
+  }
+  if (typeof value.name !== "string" || value.name.length === 0) {
+    errors.push(`${path}.name is required and must be a string`);
+  }
+  if (!("validInput" in value) || !("invalidInput" in value)) {
+    errors.push(`${path} must have both validInput and invalidInput`);
+  }
+}
+
+function validateStringArray(value: unknown, path: string, errors: string[]): void {
+  if (!Array.isArray(value) || value.some((v) => typeof v !== "string")) {
+    errors.push(`${path} must be an array of strings`);
+  }
+}
+
+function validateWorkflow(wf: unknown, index: number, errors: string[]): void {
+  if (!isPlainObject(wf)) {
+    errors.push(`workflows[${index}] must be an object`);
+    return;
+  }
+  const path = `workflows[${index}]`;
+
+  if (typeof wf.type !== "string" || wf.type.length === 0) {
+    errors.push(`${path}.type is required and must be a string`);
+  }
+  if (typeof wf.taskQueue !== "string" || wf.taskQueue.length === 0) {
+    errors.push(`${path}.taskQueue is required and must be a string`);
+  }
+
+  if ("isLongRunning" in wf && typeof wf.isLongRunning !== "boolean") {
+    errors.push(`${path}.isLongRunning must be a boolean`);
+  }
+  if ("usesTimers" in wf && typeof wf.usesTimers !== "boolean") {
+    errors.push(`${path}.usesTimers must be a boolean`);
+  }
+  if ("hasCleanupOnCancel" in wf && typeof wf.hasCleanupOnCancel !== "boolean") {
+    errors.push(`${path}.hasCleanupOnCancel must be a boolean`);
+  }
+  if ("hasChildWorkflows" in wf && typeof wf.hasChildWorkflows !== "boolean") {
+    errors.push(`${path}.hasChildWorkflows must be a boolean`);
+  }
+  if ("sagaFailurePoint" in wf && typeof wf.sagaFailurePoint !== "string") {
+    errors.push(`${path}.sagaFailurePoint must be a string`);
+  }
+  if ("idempotencyTestActivity" in wf && typeof wf.idempotencyTestActivity !== "string") {
+    errors.push(`${path}.idempotencyTestActivity must be a string`);
+  }
+  if ("dependencyOutageTestActivity" in wf && typeof wf.dependencyOutageTestActivity !== "string") {
+    errors.push(`${path}.dependencyOutageTestActivity must be a string`);
+  }
+  if ("sensitiveDataFields" in wf) {
+    validateStringArray(wf.sensitiveDataFields, `${path}.sensitiveDataFields`, errors);
+  }
+
+  if ("signals" in wf) {
+    if (!Array.isArray(wf.signals)) {
+      errors.push(`${path}.signals must be an array`);
+    } else {
+      wf.signals.forEach((s, i) => validateSignal(s, `${path}.signals[${i}]`, errors));
+    }
+  }
+  if ("queries" in wf) {
+    if (!Array.isArray(wf.queries)) {
+      errors.push(`${path}.queries must be an array`);
+    } else {
+      wf.queries.forEach((q, i) => validateQuery(q, `${path}.queries[${i}]`, errors));
+    }
+  }
+  if ("updates" in wf) {
+    if (!Array.isArray(wf.updates)) {
+      errors.push(`${path}.updates must be an array`);
+    } else {
+      wf.updates.forEach((u, i) => validateUpdate(u, `${path}.updates[${i}]`, errors));
+    }
+  }
+}
+
+function validateFeatures(features: unknown, errors: string[]): void {
+  if (!isPlainObject(features)) {
+    errors.push("features must be an object");
+    return;
+  }
+  const booleanFields = [
+    "childWorkflows",
+    "nexus",
+    "schedules",
+    "searchAttributes",
+    "localActivities",
+    "updates",
+    "updateWithStart",
+    "workerVersioning",
+    "customDataConverter",
+  ];
+  for (const field of booleanFields) {
+    if (field in features && typeof features[field] !== "boolean") {
+      errors.push(`features.${field} must be a boolean`);
+    }
+  }
+  if ("scheduleWorkflowId" in features && typeof features.scheduleWorkflowId !== "string") {
+    errors.push("features.scheduleWorkflowId must be a string");
+  }
+  if ("customSearchAttributeKeys" in features) {
+    validateStringArray(features.customSearchAttributeKeys, "features.customSearchAttributeKeys", errors);
+  }
+  if (
+    "dataConverterModulePath" in features &&
+    features.dataConverterModulePath !== null &&
+    typeof features.dataConverterModulePath !== "string"
+  ) {
+    errors.push("features.dataConverterModulePath must be a string or null");
+  }
 }
 
 export function validateConfig(input: unknown): ValidationResult {
@@ -41,19 +233,14 @@ export function validateConfig(input: unknown): ValidationResult {
   if (!Array.isArray(obj.workflows)) {
     errors.push("workflows is required and must be an array");
   } else {
-    obj.workflows.forEach((wf, i) => {
-      if (typeof wf !== "object" || wf === null) {
-        errors.push(`workflows[${i}] must be an object`);
-        return;
-      }
-      const w = wf as Record<string, unknown>;
-      if (typeof w.type !== "string" || w.type.length === 0) {
-        errors.push(`workflows[${i}].type is required and must be a string`);
-      }
-      if (typeof w.taskQueue !== "string" || w.taskQueue.length === 0) {
-        errors.push(`workflows[${i}].taskQueue is required and must be a string`);
-      }
-    });
+    obj.workflows.forEach((wf, i) => validateWorkflow(wf, i, errors));
+  }
+
+  if ("features" in obj) {
+    validateFeatures(obj.features, errors);
+  }
+  if ("outputDir" in obj && typeof obj.outputDir !== "string") {
+    errors.push("outputDir must be a string");
   }
 
   return { valid: errors.length === 0, errors };

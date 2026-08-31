@@ -283,6 +283,27 @@ schedule-to-start timeout before falling back off the now-dead worker,
 which made a naive version of this pattern hang for 90+ seconds instead of
 completing in a few.
 
+**A second documented exception**: `withFaultInjectedWorker`
+(`src/engines/dynamic/fault-injection.ts`), the shared piece behind G1
+(saga/compensation), L2 (dependency outage), and B3 (idempotency) — each
+names one activity via its own config field and needs it to misbehave on
+demand, without any cooperation from the target project's own code.
+`withRunningWorker` takes a `WorkerTarget`'s `activities` map as-is and has
+no hook to substitute a single entry, which is exactly what fault injection
+needs (run everything else UNCHANGED, swap out just one function) — so this
+is its own function, not a parameter bolted onto `withRunningWorker` that
+nothing else would use. It reproduces `withRunningWorker`'s exact
+create-run-shutdown-in-a-finally contract, **and**, because it's a direct
+`Worker.create()` call site, it registers that shutdown with
+`cleanup-registry.ts` itself (`registerCleanup`/unregister-on-normal-exit),
+the same way I1/L1's own directly-created resources do — skipping that
+would silently reintroduce the exact interrupt-time leak Phase 2b's
+cleanup-registry work fixed, for every fixture check built on this. Verified
+directly in `fault-injection.test.ts`: a simulated interrupt firing WHILE
+the callback is still running (calling `runAllCleanups()` mid-callback)
+releases the worker's connection reference immediately, not only once
+`withFaultInjectedWorker`'s own `finally` eventually runs.
+
 ## Per-check timeout and error isolation
 
 Every check's execution — inside the dynamic engine's orchestration loop

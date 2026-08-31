@@ -20,6 +20,25 @@ import { checkJ1EventHistory } from "./engines/dynamic/checks/j1.js";
 import { checkJ3FailureMessages } from "./engines/dynamic/checks/j3.js";
 import { checkK1DataConverterRoundTrip } from "./engines/dynamic/checks/k1.js";
 import { checkL1ConnectionLossRecovery } from "./engines/dynamic/checks/l1.js";
+import { checkB3Idempotency } from "./engines/dynamic/checks/b3.js";
+import { checkC1Signals } from "./engines/dynamic/checks/c1.js";
+import { checkC2Queries } from "./engines/dynamic/checks/c2.js";
+import { checkC3UpdateValidation } from "./engines/dynamic/checks/c3.js";
+import { checkC4UpdateWithStart } from "./engines/dynamic/checks/c4.js";
+import { checkC5NoStuckOnSignalUpdate } from "./engines/dynamic/checks/c5.js";
+import { checkD2SchedulesFireOnTime } from "./engines/dynamic/checks/d2.js";
+import { checkD3OverlappingSchedules } from "./engines/dynamic/checks/d3.js";
+import { checkD4MissedSchedules } from "./engines/dynamic/checks/d4.js";
+import { checkE2ContinueAsNewStatePreserved } from "./engines/dynamic/checks/e2.js";
+import { checkF1FailingChildHandled } from "./engines/dynamic/checks/f1.js";
+import { checkF2ChildNotOrphaned } from "./engines/dynamic/checks/f2.js";
+import { checkG1SagaCompensation } from "./engines/dynamic/checks/g1.js";
+import { checkH1CancelRunsCleanup } from "./engines/dynamic/checks/h1.js";
+import { checkH3CancelParentHandlesChildren } from "./engines/dynamic/checks/h3.js";
+import { checkJ2SearchAttributes } from "./engines/dynamic/checks/j2.js";
+import { checkK2SensitiveDataNotExposed } from "./engines/dynamic/checks/k2.js";
+import { checkL2DependencyOutageRecovery } from "./engines/dynamic/checks/l2.js";
+import { DynamicFixtureCheckFn } from "./engines/dynamic/fixture-check.js";
 import { runCheckWithGuards } from "./engines/dynamic/run-check.js";
 import {
   checkA2NoUnsafeCode,
@@ -31,7 +50,7 @@ import {
 import { renderConsoleReport } from "./report/console-reporter.js";
 import { renderHtmlReport } from "./report/html-reporter.js";
 import { TestResult } from "./report/types.js";
-import { TestKitConfig } from "./config/schema.js";
+import { TestKitConfig, FeaturesConfig } from "./config/schema.js";
 import { CATALOG } from "./catalog.js";
 
 const CONFIG_FILENAME = "temporal-test-kit.config.json";
@@ -148,6 +167,89 @@ async function zeroFixtureDynamicResults(
   return results;
 }
 
+/**
+ * The 18 dynamic-fixture checks (spec Section 6.3). Each entry's `id` must
+ * have a matching CATALOG row, same convention as ZERO_FIXTURE_CHECKS.
+ * Most of these are stubs as of Phase 3's first pass — SKIPPED-when-
+ * missing-fixture is fully built for all 18, but only G1's real PASS/FAIL
+ * logic exists so far (see each check's own file for its status).
+ */
+const DYNAMIC_FIXTURE_CHECKS: { id: string; fn: DynamicFixtureCheckFn; timeoutMs?: number }[] = [
+  { id: "B3", fn: checkB3Idempotency },
+  { id: "C1", fn: checkC1Signals },
+  { id: "C2", fn: checkC2Queries },
+  { id: "C3", fn: checkC3UpdateValidation },
+  { id: "C4", fn: checkC4UpdateWithStart },
+  { id: "C5", fn: checkC5NoStuckOnSignalUpdate },
+  { id: "D2", fn: checkD2SchedulesFireOnTime },
+  { id: "D3", fn: checkD3OverlappingSchedules },
+  { id: "D4", fn: checkD4MissedSchedules },
+  { id: "E2", fn: checkE2ContinueAsNewStatePreserved },
+  { id: "F1", fn: checkF1FailingChildHandled },
+  { id: "F2", fn: checkF2ChildNotOrphaned },
+  { id: "G1", fn: checkG1SagaCompensation },
+  { id: "H1", fn: checkH1CancelRunsCleanup },
+  { id: "H3", fn: checkH3CancelParentHandlesChildren },
+  { id: "J2", fn: checkJ2SearchAttributes },
+  { id: "K2", fn: checkK2SensitiveDataNotExposed },
+  { id: "L2", fn: checkL2DependencyOutageRecovery },
+];
+
+/**
+ * Two-layer gating, per the spec's SKIPPED-vs-N_A distinction: a catalog
+ * entry with `requiresFeatureFlag` is N_A — genuinely doesn't apply to this
+ * project — whenever that flag is false/unset in config, decided HERE,
+ * before the check function is even called (it never gets a chance to run,
+ * unlike a missing per-workflow fixture field, which the check itself
+ * reports as SKIPPED). Both statuses always carry a non-empty message;
+ * only SKIPPED requires a hint (see ResultCollector).
+ */
+async function dynamicFixtureResults(
+  env: EphemeralEnvironment,
+  projectRoot: string,
+  config: TestKitConfig,
+): Promise<TestResult[]> {
+  const workflowsPath = join(projectRoot, dirname(config.workerEntryPoint), "workflows.ts");
+  const activities = await import(join(projectRoot, dirname(config.workerEntryPoint), "activities.ts"));
+  const features: FeaturesConfig = config.features ?? {};
+
+  const results: TestResult[] = [];
+  for (const workflow of config.workflows) {
+    for (const { id, fn, timeoutMs } of DYNAMIC_FIXTURE_CHECKS) {
+      const entry = CATALOG.find((c) => c.id === id)!;
+
+      if (entry.requiresFeatureFlag && !features[entry.requiresFeatureFlag as keyof FeaturesConfig]) {
+        results.push({
+          id: entry.id,
+          category: entry.category,
+          name: entry.name,
+          status: "N_A",
+          target: workflow.type,
+          message: `Not applicable — this project doesn't use ${entry.requiresFeatureFlag} (features.${entry.requiresFeatureFlag} is false/unset in config)`,
+          hint: null,
+          engine: "dynamic-fixture",
+        });
+        continue;
+      }
+
+      results.push(
+        await runCheckWithGuards(
+          () => fn(env, { ...workflow, workflowsPath, activities }, features),
+          {
+            id: entry.id,
+            category: entry.category,
+            name: entry.name,
+            target: workflow.type,
+            engine: "dynamic-fixture",
+          },
+          timeoutMs,
+        ),
+      );
+    }
+  }
+  return results;
+}
+
 function notCoveredResults(): TestResult[] {
   return CATALOG.filter((c) => c.engine === "not-covered").map((c) => ({
     id: c.id,
@@ -180,6 +282,7 @@ async function runAudit(projectRoot: string): Promise<void> {
       results = [
         ...staticResults(projectRoot, workflowsPath),
         ...(await zeroFixtureDynamicResults(env, projectRoot, configResult.config)),
+        ...(await dynamicFixtureResults(env, projectRoot, configResult.config)),
         ...notCoveredResults(),
       ];
     }
