@@ -3,8 +3,21 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { loadConfig } from "./config/load.js";
 import { runPreflight } from "./engines/preflight/run-preflight.js";
-import { EphemeralEnvironment, withEphemeralEnvironment } from "./engines/dynamic/environment.js";
+import { EphemeralEnvironment, WorkerTarget, withEphemeralEnvironment } from "./engines/dynamic/environment.js";
+import { checkA1WorkflowStarts } from "./engines/dynamic/checks/a1.js";
+import { checkA3DuplicateStart } from "./engines/dynamic/checks/a3.js";
+import { checkA4DataIntegrity } from "./engines/dynamic/checks/a4.js";
+import { checkB4Heartbeats } from "./engines/dynamic/checks/b4.js";
+import { checkB5CancellationStops } from "./engines/dynamic/checks/b5.js";
+import { checkD1Timers } from "./engines/dynamic/checks/d1.js";
+import { checkE1ContinueAsNew } from "./engines/dynamic/checks/e1.js";
+import { checkH2TerminateSkipsCleanup } from "./engines/dynamic/checks/h2.js";
 import { checkI3Replay } from "./engines/dynamic/checks/i3.js";
+import { checkI4TaskQueue } from "./engines/dynamic/checks/i4.js";
+import { checkI5StickyRecovery } from "./engines/dynamic/checks/i5.js";
+import { checkJ1EventHistory } from "./engines/dynamic/checks/j1.js";
+import { checkJ3FailureMessages } from "./engines/dynamic/checks/j3.js";
+import { checkK1DataConverterRoundTrip } from "./engines/dynamic/checks/k1.js";
 import { runCheckWithGuards } from "./engines/dynamic/run-check.js";
 import { checkA2NoUnsafeCode, checkB1Timeouts, checkB2RetryPolicy } from "./engines/static/checks.js";
 import { renderConsoleReport } from "./report/console-reporter.js";
@@ -55,6 +68,35 @@ function staticResults(projectRoot: string, workflowsPath: string): TestResult[]
   }));
 }
 
+type ZeroFixtureCheckFn = (
+  env: EphemeralEnvironment,
+  target: WorkerTarget & { workflowType: string },
+) => Promise<TestResult>;
+
+/**
+ * The 14 zero-fixture dynamic checks built in Phase 2b (spec Section 6.2 lists
+ * 16 total; I1 and L1 are intentionally not here yet — see CLAUDE.md's
+ * "Checks not yet built" section for why). Each entry's `id` must have a
+ * matching CATALOG row; order here is just registration order, not report
+ * order (the report groups by category).
+ */
+const ZERO_FIXTURE_CHECKS: { id: string; fn: ZeroFixtureCheckFn }[] = [
+  { id: "A1", fn: checkA1WorkflowStarts },
+  { id: "A3", fn: checkA3DuplicateStart },
+  { id: "A4", fn: checkA4DataIntegrity },
+  { id: "B4", fn: checkB4Heartbeats },
+  { id: "B5", fn: checkB5CancellationStops },
+  { id: "D1", fn: checkD1Timers },
+  { id: "E1", fn: checkE1ContinueAsNew },
+  { id: "H2", fn: checkH2TerminateSkipsCleanup },
+  { id: "I3", fn: checkI3Replay },
+  { id: "I4", fn: checkI4TaskQueue },
+  { id: "I5", fn: checkI5StickyRecovery },
+  { id: "J1", fn: checkJ1EventHistory },
+  { id: "J3", fn: checkJ3FailureMessages },
+  { id: "K1", fn: checkK1DataConverterRoundTrip },
+];
+
 async function zeroFixtureDynamicResults(
   env: EphemeralEnvironment,
   projectRoot: string,
@@ -63,28 +105,29 @@ async function zeroFixtureDynamicResults(
   const workflowsPath = join(projectRoot, dirname(config.workerEntryPoint), "workflows.ts");
   const activities = await import(join(projectRoot, dirname(config.workerEntryPoint), "activities.ts"));
 
-  const i3Entry = CATALOG.find((c) => c.id === "I3")!;
-
   const results: TestResult[] = [];
   for (const workflow of config.workflows) {
-    results.push(
-      await runCheckWithGuards(
-        () =>
-          checkI3Replay(env, {
-            workflowType: workflow.type,
-            taskQueue: workflow.taskQueue,
-            workflowsPath,
-            activities,
-          }),
-        {
-          id: i3Entry.id,
-          category: i3Entry.category,
-          name: i3Entry.name,
-          target: workflow.type,
-          engine: "dynamic-zero-fixture",
-        },
-      ),
-    );
+    for (const { id, fn } of ZERO_FIXTURE_CHECKS) {
+      const entry = CATALOG.find((c) => c.id === id)!;
+      results.push(
+        await runCheckWithGuards(
+          () =>
+            fn(env, {
+              workflowType: workflow.type,
+              taskQueue: workflow.taskQueue,
+              workflowsPath,
+              activities,
+            }),
+          {
+            id: entry.id,
+            category: entry.category,
+            name: entry.name,
+            target: workflow.type,
+            engine: "dynamic-zero-fixture",
+          },
+        ),
+      );
+    }
   }
   return results;
 }

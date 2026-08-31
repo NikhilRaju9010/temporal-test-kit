@@ -72,6 +72,35 @@ Static checks (`src/engines/static/checks.ts`) are currently grouped in one
 file since there are only 5 of them (A2, B1, B2, B6, G2) and they're simple
 code-scans; split them out per-ID only if that file grows unwieldy.
 
+**Zero-fixture checks needing their own probe workflow** — several checks
+(A1, B4, D1, E1, H2, I5, J3) can't reliably exercise the real target
+project's workflow, either because it might complete too fast to observe an
+interruption (H2, B5), might not use timers/continue-as-new/multiple tasks
+at all (D1, E1, I5), or both. These build a small throwaway probe workflow
+under `src/engines/dynamic/checks/fixtures/`, namespaced with the check's id
+in lowercase (e.g. `d1-timer-workflow.ts`, `b5-hanging-workflow.ts`) so two
+checks' fixtures can never collide. When a check uses its own probe instead
+of `target.workflowType`, its `TestResult.target` should say so explicitly
+(e.g. `"D1TimerWorkflow (internal probe)"`) and a code comment should explain
+why — this is a deliberate, documented choice, not an oversight.
+
+**Fixture workflow files must be copied into `dist/`, not just compiled** —
+`npm run build` runs `tsc` then a `copy-fixtures` step
+(`cp src/engines/dynamic/checks/fixtures/*.ts dist/.../fixtures/`). This
+exists because Temporal's own worker bundler consumes a `workflowsPath`
+pointing at TypeScript *source*, not `tsc`'s compiled `.js` output — the same
+reason `i3.ts` points `workflowsPath` at a target project's raw `.ts` files
+rather than anything this tool compiles. `tsc` only emits `.js`/`.d.ts` for
+files under `src`; it does not copy the original `.ts` alongside them. Without
+this step, every check with its own probe fixture works fine under `vitest`
+(which resolves `.ts` straight from `src/`) but throws `ENOENT` the moment
+you run the *built* CLI (`dist/cli.js`) — this actually happened during
+Phase 2b integration and is why this step exists. If you add a new probe
+fixture, no action needed — the copy step already globs the whole
+`fixtures/` directory — but if you ever change the fixture path resolution
+logic, re-verify against `dist/cli.js`, not just `vitest`, since that's the
+one path individual unit/integration tests don't exercise.
+
 ## Where the master 49-test catalog lives
 
 `src/catalog.ts` is the single source of truth for the full list of 49
@@ -88,6 +117,48 @@ The engine assignment in `catalog.ts` is authoritative for which
 directory a check's implementation belongs in
 (`src/engines/static/`, `src/engines/dynamic/checks/`, or "not build,
 report as NOT_COVERED").
+
+### Checks not yet built: I1 and L1
+
+Of the spec's 16 zero-fixture dynamic checks, 14 are built (`src/cli.ts`'s
+`ZERO_FIXTURE_CHECKS` registry). **I1 (worker crash recovery)** and **L1
+(Temporal Server outage recovery)** are deliberately not built yet — both
+were investigated and found to need real infrastructure control this tool's
+current architecture doesn't have, and building a fake version would have
+silently under-tested exactly what their names promise:
+
+- **I1** needs a worker to die *ungracefully* mid-task (no drain, no
+  `shutdown()`, task token abandoned). Confirmed empirically: an in-process
+  `Worker` cannot be forced into this state — the SDK blocks closing its
+  connection out from under it (`IllegalStateError`, the same guard behind
+  the "Worker lifecycle gotcha" above), and nothing short of killing the OS
+  process stops its poll loop. A genuinely spawned-and-`SIGKILL`ed child
+  process, connected to the ephemeral environment via its public `env.address`,
+  was confirmed to work and produce the real recovery path (activity timeout
+  → reschedule → single successful retry). I1 needs its own child-process
+  worker-boot path, separate from `withRunningWorker` — don't try to bend
+  `withRunningWorker` to support this; its whole contract is graceful
+  shutdown-then-release, which is the opposite of what I1 needs to simulate.
+- **L1** needs the actual Temporal *server* process to go down and come back.
+  `TestWorkflowEnvironment` exposes no pause/resume for its embedded
+  server — only permanent `teardown()` — and the underlying native binding
+  (`@temporalio/core-bridge`) has no such capability at all to reach for
+  either. A same-shared-`env` connection-loss proxy (close/reopen just the
+  worker's `NativeConnection`) is buildable and safe, but only proves the SDK
+  reconnects a dropped gRPC connection — a materially narrower claim than
+  "survives the server actually being down," since the real server and every
+  *other* check sharing `env` stay completely unaffected throughout. A
+  faithful L1 needs its own private, disposable `TestWorkflowEnvironment`
+  (created and torn down entirely inside the check, per the "Zero-fixture
+  checks needing their own probe workflow" pattern below, but for the whole
+  environment rather than just a workflow) so killing its server can't affect
+  the other 13+ checks sharing the main one.
+
+Both write-ups are preserved in this project's history for whoever builds
+them — the short version is: neither is a code problem, both are an
+architecture decision (child-process worker boot for I1; a disposable
+private environment for L1) that should be made deliberately, not
+discovered by a confusing test failure.
 
 ## Config schema scope
 
@@ -112,19 +183,35 @@ and then leaves it there (or never runs it), `env.teardown()` throws
 it` — this was hit for real in Phase 2a's worker-boot preflight check.
 
 `withRunningWorker` in `src/engines/dynamic/environment.ts` is the fix, and
-the **only call site of `Worker.create()` in this codebase** — enforced by
-convention, not the type system, so don't add a second one. It creates the
-worker, starts `worker.run()`, hands the live worker to your callback, then
-always calls `worker.shutdown()` and awaits the run promise in a `finally`
-before returning — draining the reference cleanly whether your callback
-succeeded, threw, or did nothing. `bootWorker` (the boot-sanity-check used by
-preflight) is just `withRunningWorker` with a no-op callback. **No check
-under `src/engines/dynamic/checks/` should call `Worker.create()` directly.**
-If a check needs the worker to actually process tasks — most of Phase 2b's
-checks will, e.g. starting a workflow and waiting on it — call
-`withRunningWorker` and do that work inside its callback; never boot a worker
-by any other path, so every check inherits this fix automatically instead of
-re-discovering, or re-fixing inconsistently, the same bug.
+the **default, expected call site of `Worker.create()`** — enforced by
+convention, not the type system. It creates the worker, starts
+`worker.run()`, hands the live worker to your callback, then always calls
+`worker.shutdown()` and awaits the run promise in a `finally` before
+returning — draining the reference cleanly whether your callback succeeded,
+threw, or did nothing. `bootWorker` (the boot-sanity-check used by preflight)
+is just `withRunningWorker` with a no-op callback. **Almost no check should
+call `Worker.create()` directly** — if a check needs the worker to actually
+process tasks (most do: starting a workflow and waiting on it), call
+`withRunningWorker` and do that work inside its callback, so it inherits this
+fix automatically instead of re-discovering, or re-fixing inconsistently, the
+same bug.
+
+**The one narrow, documented exception**: a check that needs TWO sequential
+worker lifecycles in a row against the same environment — stop worker #1,
+start worker #2 — to prove something survives a worker restart (D1's timer
+survival, I5's sticky-queue recovery). `withRunningWorker` only manages one
+worker for the lifetime of its callback, so these checks call
+`Worker.create()` / `worker.run()` / `worker.shutdown()` directly, twice,
+inside their own function — each call site has a comment explicitly
+referencing this CLAUDE.md section so it doesn't read as a missed rule.
+Follow the exact same run-then-shutdown symmetry as `withRunningWorker` for
+*each* worker before moving to the next one or tearing down the environment.
+If you're writing a check like this, also pass `maxCachedWorkflows: 0` to
+both `Worker.create()` calls — D1 discovered that without it, the SDK's
+sticky-task-queue caching makes the server wait out a real (non-time-skippable)
+schedule-to-start timeout before falling back off the now-dead worker,
+which made a naive version of this pattern hang for 90+ seconds instead of
+completing in a few.
 
 ## Per-check timeout and error isolation
 

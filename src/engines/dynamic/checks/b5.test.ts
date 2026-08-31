@@ -1,0 +1,76 @@
+import { describe, expect, it } from "vitest";
+import { join } from "node:path";
+import { withEphemeralEnvironment } from "../environment.js";
+import { checkB5CancellationStops } from "./b5.js";
+
+const SAMPLE_PROJECT = join(import.meta.dirname, "..", "..", "..", "..", "examples", "sample-project");
+const WORKFLOWS_PATH = join(SAMPLE_PROJECT, "src", "workflows.ts");
+const HANGING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "b5-hanging-workflow.ts");
+const SWALLOWING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "b5-swallowing-workflow.ts");
+
+async function loadActivities() {
+  return import(join(SAMPLE_PROJECT, "src", "activities.ts"));
+}
+
+describe("checkB5CancellationStops (real @temporalio/testing, no mocked Temporal internals)", () => {
+  it("passes when a workflow that doesn't shield itself reaches CANCELLED promptly", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "GreetingWorkflow",
+        taskQueue: "default",
+        workflowsPath: HANGING_WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    expect(result.status).toBe("PASS");
+    expect(result.id).toBe("B5");
+    expect(result.category).toBe("Activities");
+    expect(result.name).toBe("Cancelling a step actually stops it");
+    expect(result.target).toBe("GreetingWorkflow");
+    expect(result.hint).toBeNull();
+    expect(result.message).toMatch(/cancel/i);
+  }, 30_000);
+
+  it("fails when a workflow shields itself from cancellation (nonCancellable) and keeps running", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "GreetingWorkflow",
+        taskQueue: "default",
+        workflowsPath: SWALLOWING_WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.id).toBe("B5");
+    expect(result.target).toBe("GreetingWorkflow");
+    expect(result.hint).toBeTruthy();
+    expect(result.hint).toMatch(/orphan|swallow|catch|cancel/i);
+    expect(result.message).toMatch(/running|did not|not.*honor/i);
+  }, 30_000);
+
+  it("does not error out against the real sample project even though GreetingWorkflow can complete near-instantly", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "GreetingWorkflow",
+        taskQueue: "default",
+        workflowsPath: WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    // Whichever way the race against the sample project's near-instant
+    // workflow lands, the check itself must resolve cleanly to a real
+    // status rather than throwing/hanging.
+    expect(["PASS", "FAIL"]).toContain(result.status);
+    expect(result.id).toBe("B5");
+    expect(result.target).toBe("GreetingWorkflow");
+  }, 30_000);
+});
