@@ -21,7 +21,13 @@ import { checkJ3FailureMessages } from "./engines/dynamic/checks/j3.js";
 import { checkK1DataConverterRoundTrip } from "./engines/dynamic/checks/k1.js";
 import { checkL1ConnectionLossRecovery } from "./engines/dynamic/checks/l1.js";
 import { runCheckWithGuards } from "./engines/dynamic/run-check.js";
-import { checkA2NoUnsafeCode, checkB1Timeouts, checkB2RetryPolicy } from "./engines/static/checks.js";
+import {
+  checkA2NoUnsafeCode,
+  checkB1Timeouts,
+  checkB2RetryPolicy,
+  checkB6LocalActivitiesAreShort,
+  checkG2PermanentFailuresDontRetryForever,
+} from "./engines/static/checks.js";
 import { renderConsoleReport } from "./report/console-reporter.js";
 import { renderHtmlReport } from "./report/html-reporter.js";
 import { TestResult } from "./report/types.js";
@@ -56,6 +62,8 @@ function staticResults(projectRoot: string, workflowsPath: string): TestResult[]
     { entry: CATALOG.find((c) => c.id === "A2")!, result: checkA2NoUnsafeCode(source) },
     { entry: CATALOG.find((c) => c.id === "B1")!, result: checkB1Timeouts(source) },
     { entry: CATALOG.find((c) => c.id === "B2")!, result: checkB2RetryPolicy(source) },
+    { entry: CATALOG.find((c) => c.id === "B6")!, result: checkB6LocalActivitiesAreShort(source) },
+    { entry: CATALOG.find((c) => c.id === "G2")!, result: checkG2PermanentFailuresDontRetryForever(source) },
   ];
 
   return checks.map(({ entry, result }) => ({
