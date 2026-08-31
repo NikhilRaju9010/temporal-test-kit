@@ -1,0 +1,6 @@
+node_modules/
+dist/
+*.log
+temporal-test-kit-report/
+examples/*/node_modules/
+examples/*/dist/

@@ -1,0 +1,8 @@
+{
+  "project": "sample-project",
+  "workerEntryPoint": "./src/worker.ts",
+  "taskQueues": ["default"],
+  "workflows": [
+    { "type": "GreetingWorkflow", "taskQueue": "default" }
+  ]
+}
