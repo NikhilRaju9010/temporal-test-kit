@@ -9,6 +9,7 @@
       "taskQueue": "saga",
       "sampleInput": { "orderId": "TEST-ORDER-001", "cardNumber": "4242424242424242", "amount": 49.99 },
       "sagaFailurePoint": "chargeCardActivity",
+      "idempotencyTestActivity": "chargeCardActivity",
       "sensitiveDataFields": ["cardNumber"]
     }
   ]
