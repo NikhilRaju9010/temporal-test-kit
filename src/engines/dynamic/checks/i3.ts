@@ -3,6 +3,7 @@ import type { History } from "@temporalio/common/lib/proto-utils.js";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
+import { generateWorkflowId } from "../workflow-id.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I3")!;
 const RUN_TIMEOUT_MS = 10_000;
@@ -25,7 +26,7 @@ export async function recordWorkflowHistory(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
 ): Promise<RecordedHistory> {
-  const workflowId = `ttk-i3-${target.workflowType}-${Date.now()}`;
+  const workflowId = generateWorkflowId("I3", target.workflowType);
 
   return withRunningWorker(env, target, async () => {
     const handle = await env.client.workflow.start(target.workflowType, {

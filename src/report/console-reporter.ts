@@ -12,10 +12,12 @@ function engineSummaryLine(label: string, results: TestResult[]): string {
   const passed = results.filter((r) => r.status === "PASS").length;
   const failed = results.filter((r) => r.status === "FAIL").length;
   const skipped = results.filter((r) => r.status === "SKIPPED").length;
+  const errored = results.filter((r) => r.status === "ERRORED").length;
 
   const parts = [`${passed}/${total} passed`];
   if (failed > 0) parts.push(`${failed} failed`);
   if (skipped > 0) parts.push(`${skipped} skipped (missing fixture data)`);
+  if (errored > 0) parts.push(`${errored} errored (tool bug, not an app finding)`);
   return `${label}: ${parts.join(", ")}`;
 }
 
@@ -55,7 +57,7 @@ export function renderConsoleReport(preflight: PreflightReport, results: TestRes
     lines.push(`${category}:`);
     for (const r of group) {
       lines.push(`  [${r.status}] ${r.id} ${r.name} — ${r.message}`);
-      if ((r.status === "FAIL" || r.status === "SKIPPED") && r.hint) {
+      if ((r.status === "FAIL" || r.status === "SKIPPED" || r.status === "ERRORED") && r.hint) {
         lines.push(`      hint: ${r.hint}`);
       }
     }
@@ -66,7 +68,8 @@ export function renderConsoleReport(preflight: PreflightReport, results: TestRes
   for (const r of results) collector.add(r);
   const summary = collector.summary();
   lines.push(
-    `Overall: ${summary.PASS} passed, ${summary.FAIL} failed, ${summary.SKIPPED} skipped, ${summary.NOT_COVERED} not covered`,
+    `Overall: ${summary.PASS} passed, ${summary.FAIL} failed, ${summary.SKIPPED} skipped, ` +
+      `${summary.NOT_COVERED} not covered, ${summary.ERRORED} errored`,
   );
 
   return lines.join("\n");

@@ -1,15 +1,16 @@
 import { Status, TestResult } from "./types.js";
 
-const STATUSES: Status[] = ["PASS", "FAIL", "SKIPPED", "N_A", "NOT_COVERED"];
+const STATUSES: Status[] = ["PASS", "FAIL", "SKIPPED", "N_A", "NOT_COVERED", "ERRORED"];
+const STATUSES_REQUIRING_HINT: Status[] = ["FAIL", "SKIPPED", "ERRORED"];
 
 export class ResultCollector {
   results: TestResult[] = [];
 
   add(result: TestResult): void {
-    if ((result.status === "FAIL" || result.status === "SKIPPED") && !result.hint) {
+    if (STATUSES_REQUIRING_HINT.includes(result.status) && !result.hint) {
       throw new Error(
         `Result ${result.id} has status ${result.status} but no hint. ` +
-          "Every FAIL/SKIPPED result must include a non-empty hint.",
+          "Every FAIL/SKIPPED/ERRORED result must include a non-empty hint.",
       );
     }
     this.results.push(result);

@@ -5,6 +5,7 @@ import { loadConfig } from "./config/load.js";
 import { runPreflight } from "./engines/preflight/run-preflight.js";
 import { EphemeralEnvironment, withEphemeralEnvironment } from "./engines/dynamic/environment.js";
 import { checkI3Replay } from "./engines/dynamic/checks/i3.js";
+import { runCheckWithGuards } from "./engines/dynamic/run-check.js";
 import { checkA2NoUnsafeCode, checkB1Timeouts, checkB2RetryPolicy } from "./engines/static/checks.js";
 import { renderConsoleReport } from "./report/console-reporter.js";
 import { renderHtmlReport } from "./report/html-reporter.js";
@@ -62,15 +63,27 @@ async function zeroFixtureDynamicResults(
   const workflowsPath = join(projectRoot, dirname(config.workerEntryPoint), "workflows.ts");
   const activities = await import(join(projectRoot, dirname(config.workerEntryPoint), "activities.ts"));
 
+  const i3Entry = CATALOG.find((c) => c.id === "I3")!;
+
   const results: TestResult[] = [];
   for (const workflow of config.workflows) {
     results.push(
-      await checkI3Replay(env, {
-        workflowType: workflow.type,
-        taskQueue: workflow.taskQueue,
-        workflowsPath,
-        activities,
-      }),
+      await runCheckWithGuards(
+        () =>
+          checkI3Replay(env, {
+            workflowType: workflow.type,
+            taskQueue: workflow.taskQueue,
+            workflowsPath,
+            activities,
+          }),
+        {
+          id: i3Entry.id,
+          category: i3Entry.category,
+          name: i3Entry.name,
+          target: workflow.type,
+          engine: "dynamic-zero-fixture",
+        },
+      ),
     );
   }
   return results;
@@ -121,7 +134,8 @@ async function runAudit(projectRoot: string): Promise<void> {
     writeFileSync(join(outDir, "index.html"), html);
     console.log(`\nHTML report written to ${join(outDir, "index.html")}`);
 
-    process.exitCode = results.some((r) => r.status === "FAIL") || !preflight.passed ? 1 : 0;
+    const hasProblem = results.some((r) => r.status === "FAIL" || r.status === "ERRORED");
+    process.exitCode = hasProblem || !preflight.passed ? 1 : 0;
   });
 }
 

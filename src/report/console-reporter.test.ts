@@ -30,14 +30,34 @@ describe("renderConsoleReport", () => {
     expect(output).toMatch(/Worker failed to start: boom/);
   });
 
-  it("prints the one-line overall summary with correct counts", () => {
+  it("prints the one-line overall summary with correct counts, including errored", () => {
     const output = renderConsoleReport(preflight, results);
-    expect(output).toMatch(/Overall: 1 passed, 1 failed, 1 skipped, 0 not covered/);
+    expect(output).toMatch(/Overall: 1 passed, 1 failed, 1 skipped, 0 not covered, 0 errored/);
   });
 
   it("shows a hint for FAIL and SKIPPED results", () => {
     const output = renderConsoleReport(preflight, results);
     expect(output).toMatch(/fix it/);
     expect(output).toMatch(/add fixture/);
+  });
+
+  it("shows ERRORED results with their hint, distinct from FAIL", () => {
+    const withErrored: TestResult[] = [
+      ...results,
+      {
+        id: "X4",
+        category: "Cat",
+        name: "n",
+        status: "ERRORED",
+        target: null,
+        message: "threw",
+        hint: "this is a tool bug, not an app finding",
+        engine: "dynamic-zero-fixture",
+      },
+    ];
+    const output = renderConsoleReport(preflight, withErrored);
+    expect(output).toMatch(/\[ERRORED\]/);
+    expect(output).toMatch(/this is a tool bug, not an app finding/);
+    expect(output).toMatch(/Overall: 1 passed, 1 failed, 1 skipped, 0 not covered, 1 errored/);
   });
 });

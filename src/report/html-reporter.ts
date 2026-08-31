@@ -16,6 +16,7 @@ const STATUS_COLORS: Record<Status, string> = {
   SKIPPED: "#9a6700",
   N_A: "#57606a",
   NOT_COVERED: "#57606a",
+  ERRORED: "#8250df",
 };
 
 function pill(status: Status): string {
@@ -74,7 +75,7 @@ ${preflightHtml}
 <h2>Results</h2>
 ${categoriesHtml}
 <h2>Summary</h2>
-<p>Overall: ${summary.PASS} passed, ${summary.FAIL} failed, ${summary.SKIPPED} skipped, ${summary.N_A} n/a, ${summary.NOT_COVERED} not covered</p>
+<p>Overall: ${summary.PASS} passed, ${summary.FAIL} failed, ${summary.SKIPPED} skipped, ${summary.N_A} n/a, ${summary.NOT_COVERED} not covered, ${summary.ERRORED} errored</p>
 </body>
 </html>`;
 }

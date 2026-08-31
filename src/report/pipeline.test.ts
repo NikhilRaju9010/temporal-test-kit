@@ -75,6 +75,6 @@ describe("report pipeline end-to-end (all five statuses)", () => {
 
   it("summary counts every status exactly once where expected", () => {
     const output = renderConsoleReport(preflight, results);
-    expect(output).toMatch(/Overall: 1 passed, 1 failed, 1 skipped, 1 not covered/);
+    expect(output).toMatch(/Overall: 1 passed, 1 failed, 1 skipped, 1 not covered, 0 errored/);
   });
 });
