@@ -42,6 +42,50 @@ export async function withEphemeralEnvironment<T>(
   }
 }
 
+export interface WorkerTarget {
+  workflowsPath: string;
+  activities: Record<string, unknown>;
+  taskQueue: string;
+}
+
+/**
+ * THE single call site for `Worker.create()` in this codebase (enforced by
+ * convention — see CLAUDE.md's "Worker lifecycle gotcha" section). Creates a
+ * worker against the ephemeral environment's connection, starts it running,
+ * lets `fn` do whatever it needs while the worker is live (start workflows,
+ * send signals, etc.), then always shuts the worker down and awaits its
+ * `run()` promise before returning — draining the connection reference that
+ * `Worker.create()` leaves behind, which only `run()` completing releases.
+ * Every check that needs a live worker must go through this (or `bootWorker`
+ * below, which is just this with a no-op `fn`), never call `Worker.create()`
+ * directly.
+ */
+export async function withRunningWorker<T>(
+  env: EphemeralEnvironment,
+  target: WorkerTarget,
+  fn: (worker: Worker) => Promise<T>,
+): Promise<T> {
+  const worker = await Worker.create({
+    connection: env.nativeConnection,
+    taskQueue: target.taskQueue,
+    workflowsPath: target.workflowsPath,
+    activities: target.activities,
+  });
+
+  const runPromise = worker.run();
+  runPromise.catch(() => {
+    // Errors surface via the awaited runPromise below; this just prevents
+    // an unhandled rejection while `fn` is still running.
+  });
+
+  try {
+    return await fn(worker);
+  } finally {
+    worker.shutdown();
+    await runPromise;
+  }
+}
+
 export interface WorkerBootResult {
   booted: boolean;
   error: string | null;
@@ -49,37 +93,12 @@ export interface WorkerBootResult {
 
 /**
  * Starts the project's real worker against the ephemeral environment's
- * connection and confirms it registers. `Worker.create()` alone proves
- * registration (task queue bound, workflow bundle compiled, activities
- * resolved) but leaves a reference on the shared connection that only gets
- * released once `run()` completes — so this immediately requests shutdown
- * and awaits `run()` to drain that reference before returning, otherwise
- * `env.teardown()` throws IllegalStateError ("Workers hold a reference").
+ * connection and confirms it registers (task queue bound, workflow bundle
+ * compiled, activities resolved), without needing it to process anything.
  */
-export async function bootWorker(
-  env: EphemeralEnvironment,
-  options: {
-    workflowsPath: string;
-    activities: Record<string, unknown>;
-    taskQueue: string;
-  },
-): Promise<WorkerBootResult> {
-  let worker: Worker;
+export async function bootWorker(env: EphemeralEnvironment, target: WorkerTarget): Promise<WorkerBootResult> {
   try {
-    worker = await Worker.create({
-      connection: env.nativeConnection,
-      taskQueue: options.taskQueue,
-      workflowsPath: options.workflowsPath,
-      activities: options.activities,
-    });
-  } catch (e) {
-    return { booted: false, error: (e as Error).message };
-  }
-
-  try {
-    const runPromise = worker.run();
-    worker.shutdown();
-    await runPromise;
+    await withRunningWorker(env, target, async () => {});
     return { booted: true, error: null };
   } catch (e) {
     return { booted: false, error: (e as Error).message };

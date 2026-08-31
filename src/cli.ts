@@ -3,12 +3,13 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { loadConfig } from "./config/load.js";
 import { runPreflight } from "./engines/preflight/run-preflight.js";
-import { withEphemeralEnvironment } from "./engines/dynamic/environment.js";
-import { runFakeCheck } from "./engines/dynamic/checks/_fake.js";
+import { EphemeralEnvironment, withEphemeralEnvironment } from "./engines/dynamic/environment.js";
+import { checkI3Replay } from "./engines/dynamic/checks/i3.js";
 import { checkA2NoUnsafeCode, checkB1Timeouts, checkB2RetryPolicy } from "./engines/static/checks.js";
 import { renderConsoleReport } from "./report/console-reporter.js";
 import { renderHtmlReport } from "./report/html-reporter.js";
 import { TestResult } from "./report/types.js";
+import { TestKitConfig } from "./config/schema.js";
 import { CATALOG } from "./catalog.js";
 
 const CONFIG_FILENAME = "temporal-test-kit.config.json";
@@ -53,6 +54,28 @@ function staticResults(projectRoot: string, workflowsPath: string): TestResult[]
   }));
 }
 
+async function zeroFixtureDynamicResults(
+  env: EphemeralEnvironment,
+  projectRoot: string,
+  config: TestKitConfig,
+): Promise<TestResult[]> {
+  const workflowsPath = join(projectRoot, dirname(config.workerEntryPoint), "workflows.ts");
+  const activities = await import(join(projectRoot, dirname(config.workerEntryPoint), "activities.ts"));
+
+  const results: TestResult[] = [];
+  for (const workflow of config.workflows) {
+    results.push(
+      await checkI3Replay(env, {
+        workflowType: workflow.type,
+        taskQueue: workflow.taskQueue,
+        workflowsPath,
+        activities,
+      }),
+    );
+  }
+  return results;
+}
+
 function notCoveredResults(): TestResult[] {
   return CATALOG.filter((c) => c.engine === "not-covered").map((c) => ({
     id: c.id,
@@ -84,7 +107,7 @@ async function runAudit(projectRoot: string): Promise<void> {
       const workflowsPath = join(projectRoot, dirname(configResult.config.workerEntryPoint), "workflows.ts");
       results = [
         ...staticResults(projectRoot, workflowsPath),
-        runFakeCheck("PASS"),
+        ...(await zeroFixtureDynamicResults(env, projectRoot, configResult.config)),
         ...notCoveredResults(),
       ];
     }
