@@ -24,3 +24,24 @@ export async function shipOrderActivity(orderId: string): Promise<string> {
 export async function releaseInventoryActivity(orderId: string): Promise<string> {
   return `released:${orderId}`;
 }
+
+// --- InteractiveWorkflow's cleanup activity (fixture for H1 cancel-runs-cleanup) ---
+//
+// Called from InteractiveWorkflow's catch block when its finishSignal wait is
+// interrupted by cancellation, before the CancelledFailure is re-thrown. H1
+// confirms this actually ran by finding it in the recorded event history
+// (ActivityTaskScheduled/ActivityTaskCompleted naming this activity) rather
+// than trusting the workflow's own claim that it ran cleanup.
+export async function cleanupActivity(reason: string): Promise<string> {
+  return `cleaned:${reason}`;
+}
+
+// --- ChildWorkflow's activity (fixture for F1's fault-injection target) ---
+//
+// Called once at the start of ChildWorkflow, before it waits on
+// childFinishSignal. F1 fault-injects this (same withFaultInjectedWorker
+// technique as G1's chargeCardActivity) to force the child to fail, and
+// observes how ParentWorkflow reacts.
+export async function childTaskActivity(taskId: string): Promise<string> {
+  return `child-task-done:${taskId}`;
+}

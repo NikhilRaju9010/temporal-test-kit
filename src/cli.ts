@@ -185,7 +185,11 @@ const DYNAMIC_FIXTURE_CHECKS: { id: string; fn: DynamicFixtureCheckFn; timeoutMs
   { id: "D3", fn: checkD3OverlappingSchedules },
   { id: "D4", fn: checkD4MissedSchedules },
   { id: "E2", fn: checkE2ContinueAsNewStatePreserved },
-  { id: "F1", fn: checkF1FailingChildHandled },
+  // F1 runs a two-phase probe (a normal run to generically discover which
+  // activity its child workflow calls, since no config field names it —
+  // see f1.ts's doc comment — then a second, fault-injected run), so it
+  // legitimately needs more than the default 15s budget.
+  { id: "F1", fn: checkF1FailingChildHandled, timeoutMs: 30_000 },
   { id: "F2", fn: checkF2ChildNotOrphaned },
   { id: "G1", fn: checkG1SagaCompensation },
   { id: "H1", fn: checkH1CancelRunsCleanup },

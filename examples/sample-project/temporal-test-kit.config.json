@@ -1,7 +1,7 @@
 {
   "project": "sample-project",
   "workerEntryPoint": "./src/worker.ts",
-  "taskQueues": ["default", "saga"],
+  "taskQueues": ["default", "saga", "interactive", "parent"],
   "workflows": [
     { "type": "GreetingWorkflow", "taskQueue": "default" },
     {
@@ -10,7 +10,32 @@
       "sampleInput": { "orderId": "TEST-ORDER-001", "cardNumber": "4242424242424242", "amount": 49.99 },
       "sagaFailurePoint": "chargeCardActivity",
       "idempotencyTestActivity": "chargeCardActivity",
-      "sensitiveDataFields": ["cardNumber"]
+      "sensitiveDataFields": ["cardNumber"],
+      "dependencyOutageTestActivity": "chargeCardActivity"
+    },
+    {
+      "type": "InteractiveWorkflow",
+      "taskQueue": "interactive",
+      "sampleInput": "TTK",
+      "signals": [{ "name": "pingSignal", "payload": "ping-from-config" }],
+      "queries": [{ "name": "getStateQuery" }],
+      "updates": [{ "name": "changeStateUpdate", "validInput": "NewName", "invalidInput": "" }],
+      "hasCleanupOnCancel": true
+    },
+    {
+      "type": "ParentWorkflow",
+      "taskQueue": "parent",
+      "sampleInput": { "childTaskId": "TEST-CHILD-TASK-001", "parentClosePolicy": "TERMINATE" },
+      "hasChildWorkflows": true
     }
-  ]
+  ],
+  "features": {
+    "childWorkflows": true,
+    "schedules": true,
+    "scheduleWorkflowId": "GreetingWorkflow",
+    "searchAttributes": true,
+    "customSearchAttributeKeys": ["TTK_OrderStatus"],
+    "updates": true,
+    "updateWithStart": true
+  }
 }
