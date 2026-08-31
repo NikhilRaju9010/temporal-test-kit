@@ -86,6 +86,32 @@ engine (`project`, `workerEntryPoint`, `taskQueues`, `workflows[].type`,
 don't add those fields to the schema early; extend it when Phase 3 actually
 starts consuming them.
 
+## Worker lifecycle gotcha — always boot workers through `bootWorker`
+
+`Worker.create()` does **not** fully release its hold on the connection it
+was created with. Creating a worker registers it as a reference holder on
+the shared `NativeConnection` (`extractReferenceHolders(connection).add(...)`
+inside `@temporalio/worker`), and that reference is only removed in the
+`finally` block of `Worker.run()` — i.e. only once the worker has actually
+run and shut down, not at `create()` time. If a check calls `Worker.create()`
+and then leaves it there (or never runs it), `env.teardown()` throws
+`IllegalStateError: Cannot close connection while Workers hold a reference to
+it` — this was hit for real in Phase 2a's worker-boot preflight check.
+
+`bootWorker` in `src/engines/dynamic/environment.ts` is the fix: it starts
+`worker.run()`, immediately calls `worker.shutdown()`, and awaits the run
+promise before returning, which drains the reference cleanly. This is not
+optional plumbing — **it is the only sanctioned way any check boots a
+worker.** No check under `src/engines/dynamic/checks/` should call
+`Worker.create()` directly; route through `bootWorker` (or a check-specific
+helper that itself calls `bootWorker`/wraps the same run-then-shutdown
+pattern) so every check inherits this fix automatically instead of
+re-discovering — or re-fixing inconsistently — the same bug. If a check
+needs the worker to actually process tasks (most of Phase 2b's checks will),
+extend `bootWorker`'s pattern rather than bypassing it: keep the run/shutdown
+symmetry so the connection reference is always released before
+`env.teardown()` runs, regardless of how the check itself succeeds or fails.
+
 ## Testing
 
 TDD throughout: a failing test before any production code. Preflight checks
