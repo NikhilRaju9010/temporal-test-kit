@@ -12,12 +12,14 @@ import { checkB5CancellationStops } from "./engines/dynamic/checks/b5.js";
 import { checkD1Timers } from "./engines/dynamic/checks/d1.js";
 import { checkE1ContinueAsNew } from "./engines/dynamic/checks/e1.js";
 import { checkH2TerminateSkipsCleanup } from "./engines/dynamic/checks/h2.js";
+import { checkI1WorkerCrashRecovery } from "./engines/dynamic/checks/i1.js";
 import { checkI3Replay } from "./engines/dynamic/checks/i3.js";
 import { checkI4TaskQueue } from "./engines/dynamic/checks/i4.js";
 import { checkI5StickyRecovery } from "./engines/dynamic/checks/i5.js";
 import { checkJ1EventHistory } from "./engines/dynamic/checks/j1.js";
 import { checkJ3FailureMessages } from "./engines/dynamic/checks/j3.js";
 import { checkK1DataConverterRoundTrip } from "./engines/dynamic/checks/k1.js";
+import { checkL1ConnectionLossRecovery } from "./engines/dynamic/checks/l1.js";
 import { runCheckWithGuards } from "./engines/dynamic/run-check.js";
 import { checkA2NoUnsafeCode, checkB1Timeouts, checkB2RetryPolicy } from "./engines/static/checks.js";
 import { renderConsoleReport } from "./report/console-reporter.js";
@@ -74,13 +76,16 @@ type ZeroFixtureCheckFn = (
 ) => Promise<TestResult>;
 
 /**
- * The 14 zero-fixture dynamic checks built in Phase 2b (spec Section 6.2 lists
- * 16 total; I1 and L1 are intentionally not here yet — see CLAUDE.md's
- * "Checks not yet built" section for why). Each entry's `id` must have a
- * matching CATALOG row; order here is just registration order, not report
- * order (the report groups by category).
+ * The zero-fixture dynamic checks (spec Section 6.2 lists 16 total). Each
+ * entry's `id` must have a matching CATALOG row; order here is just
+ * registration order, not report order (the report groups by category).
+ * `timeoutMs` overrides `runCheckWithGuards`'s default 15s budget — most
+ * checks fit well within it, but a check that must wait out a REAL timeout
+ * (a killed worker's activity task expiring, a dropped connection
+ * reconnecting) genuinely needs more wall-clock time; that's not a bug to
+ * optimize away, it's what the check is actually testing.
  */
-const ZERO_FIXTURE_CHECKS: { id: string; fn: ZeroFixtureCheckFn }[] = [
+const ZERO_FIXTURE_CHECKS: { id: string; fn: ZeroFixtureCheckFn; timeoutMs?: number }[] = [
   { id: "A1", fn: checkA1WorkflowStarts },
   { id: "A3", fn: checkA3DuplicateStart },
   { id: "A4", fn: checkA4DataIntegrity },
@@ -89,12 +94,14 @@ const ZERO_FIXTURE_CHECKS: { id: string; fn: ZeroFixtureCheckFn }[] = [
   { id: "D1", fn: checkD1Timers },
   { id: "E1", fn: checkE1ContinueAsNew },
   { id: "H2", fn: checkH2TerminateSkipsCleanup },
+  { id: "I1", fn: checkI1WorkerCrashRecovery, timeoutMs: 40_000 },
   { id: "I3", fn: checkI3Replay },
   { id: "I4", fn: checkI4TaskQueue },
   { id: "I5", fn: checkI5StickyRecovery },
   { id: "J1", fn: checkJ1EventHistory },
   { id: "J3", fn: checkJ3FailureMessages },
   { id: "K1", fn: checkK1DataConverterRoundTrip },
+  { id: "L1", fn: checkL1ConnectionLossRecovery },
 ];
 
 async function zeroFixtureDynamicResults(
@@ -107,7 +114,7 @@ async function zeroFixtureDynamicResults(
 
   const results: TestResult[] = [];
   for (const workflow of config.workflows) {
-    for (const { id, fn } of ZERO_FIXTURE_CHECKS) {
+    for (const { id, fn, timeoutMs } of ZERO_FIXTURE_CHECKS) {
       const entry = CATALOG.find((c) => c.id === id)!;
       results.push(
         await runCheckWithGuards(
@@ -125,6 +132,7 @@ async function zeroFixtureDynamicResults(
             target: workflow.type,
             engine: "dynamic-zero-fixture",
           },
+          timeoutMs,
         ),
       );
     }

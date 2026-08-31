@@ -1,5 +1,6 @@
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
+import { registerCleanup, runAllCleanups } from "./cleanup-registry.js";
 
 export type EphemeralEnvironment = Awaited<ReturnType<typeof TestWorkflowEnvironment.createLocal>>;
 
@@ -14,21 +15,35 @@ export async function createTimeSkippingEnvironment(): Promise<EphemeralEnvironm
 /**
  * Runs `fn` against a fresh ephemeral environment, guaranteeing teardown
  * even if `fn` throws or the process receives SIGINT/SIGTERM mid-run.
+ *
+ * This environment's own teardown is registered in the shared cleanup
+ * registry (`cleanup-registry.ts`) rather than torn down directly by the
+ * signal handler — on SIGINT/SIGTERM, EVERY currently-registered resource
+ * runs, not just this one. That matters once a check owns something this
+ * function doesn't know about (I5/L1's own private `TestWorkflowEnvironment`,
+ * I1's spawned child-process worker): before the registry existed, an
+ * interrupt mid-check tore down only the main env and then called
+ * `process.exit()`, which kills the process before that check's own
+ * `finally` block runs — silently orphaning whatever it owned. Registering
+ * here fixes that for this environment, and any check with its own
+ * disposable resource gets the same protection by registering it too.
  */
 export async function withEphemeralEnvironment<T>(
   fn: (env: EphemeralEnvironment) => Promise<T>,
   create: () => Promise<EphemeralEnvironment> = createEphemeralEnvironment,
+  exit: typeof process.exit = process.exit,
 ): Promise<T> {
   const env = await create();
 
-  let interrupted = false;
+  let torndown = false;
   const teardown = async () => {
-    if (interrupted) return;
-    interrupted = true;
+    if (torndown) return;
+    torndown = true;
     await env.teardown();
   };
+  const unregister = registerCleanup(teardown);
   const onSignal = () => {
-    teardown().finally(() => process.exit(1));
+    runAllCleanups().finally(() => exit(1));
   };
   process.once("SIGINT", onSignal);
   process.once("SIGTERM", onSignal);
@@ -38,6 +53,7 @@ export async function withEphemeralEnvironment<T>(
   } finally {
     process.removeListener("SIGINT", onSignal);
     process.removeListener("SIGTERM", onSignal);
+    unregister();
     await teardown();
   }
 }

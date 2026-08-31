@@ -118,47 +118,117 @@ directory a check's implementation belongs in
 (`src/engines/static/`, `src/engines/dynamic/checks/`, or "not build,
 report as NOT_COVERED").
 
-### Checks not yet built: I1 and L1
+### All 16 zero-fixture checks are built — I1 and L1 needed dedicated infra
 
-Of the spec's 16 zero-fixture dynamic checks, 14 are built (`src/cli.ts`'s
-`ZERO_FIXTURE_CHECKS` registry). **I1 (worker crash recovery)** and **L1
-(Temporal Server outage recovery)** are deliberately not built yet — both
-were investigated and found to need real infrastructure control this tool's
-current architecture doesn't have, and building a fake version would have
-silently under-tested exactly what their names promise:
+I1 (worker crash recovery) and L1 (Temporal Server outage recovery) were the
+last two of the spec's 16 zero-fixture dynamic checks, and both needed real
+infrastructure control beyond what `withRunningWorker`'s in-process, single-
+connection model provides. Building a fake version of either would have
+silently under-tested exactly what their names promise, so each got its own
+deliberate design instead:
 
 - **I1** needs a worker to die *ungracefully* mid-task (no drain, no
   `shutdown()`, task token abandoned). Confirmed empirically: an in-process
   `Worker` cannot be forced into this state — the SDK blocks closing its
   connection out from under it (`IllegalStateError`, the same guard behind
   the "Worker lifecycle gotcha" above), and nothing short of killing the OS
-  process stops its poll loop. A genuinely spawned-and-`SIGKILL`ed child
-  process, connected to the ephemeral environment via its public `env.address`,
-  was confirmed to work and produce the real recovery path (activity timeout
-  → reschedule → single successful retry). I1 needs its own child-process
-  worker-boot path, separate from `withRunningWorker` — don't try to bend
-  `withRunningWorker` to support this; its whole contract is graceful
-  shutdown-then-release, which is the opposite of what I1 needs to simulate.
-- **L1** needs the actual Temporal *server* process to go down and come back.
-  `TestWorkflowEnvironment` exposes no pause/resume for its embedded
+  process stops its poll loop. I1 uses `spawnKillableWorker`
+  (`src/engines/dynamic/child-worker.ts`) — a **real, separate OS child
+  process** running `child-worker-entry.ts` (a generic bootstrap script:
+  connects, boots a `Worker`, prints `WORKER_BOUND`, then just calls
+  `worker.run()` with **no shutdown handling at all**, deliberately, since
+  the only way it's meant to stop is a real signal killing it). This is
+  intentionally separate from `withRunningWorker` — that path's whole
+  contract is graceful shutdown-then-release, the opposite of what a
+  killable worker needs — and separate from L1's infra too (see below): I1's
+  `i1.ts` spawns two of these processes against its own private environment,
+  kills the first mid-activity (once the activity's own "started" marker
+  file confirms it's genuinely executing, not just polling), and confirms a
+  fresh worker/process completes the retried activity's real side effect
+  exactly once (`fixtures/i1-activities.ts` + `fixtures/i1-side-effect-workflow.ts`).
+  I1 is allowed 40s in `ZERO_FIXTURE_CHECKS`' `timeoutMs` override (vs. the
+  default 15s) — waiting out a real activity timeout and retry is what the
+  check is testing, not something to optimize away.
+- **L1** needs the actual Temporal *server* process to go down and come
+  back. `TestWorkflowEnvironment` exposes no pause/resume for its embedded
   server — only permanent `teardown()` — and the underlying native binding
   (`@temporalio/core-bridge`) has no such capability at all to reach for
-  either. A same-shared-`env` connection-loss proxy (close/reopen just the
-  worker's `NativeConnection`) is buildable and safe, but only proves the SDK
-  reconnects a dropped gRPC connection — a materially narrower claim than
-  "survives the server actually being down," since the real server and every
-  *other* check sharing `env` stay completely unaffected throughout. A
-  faithful L1 needs its own private, disposable `TestWorkflowEnvironment`
-  (created and torn down entirely inside the check, per the "Zero-fixture
-  checks needing their own probe workflow" pattern below, but for the whole
-  environment rather than just a workflow) so killing its server can't affect
-  the other 13+ checks sharing the main one.
+  either; confirmed while building this, not assumed. So L1 (`l1.ts`) ships
+  the narrower, honestly-labeled version instead of blocking on the
+  unbuildable faithful one: its own private environment, an explicit
+  `NativeConnection.close()` mid-workflow (a real, verified disconnect — not
+  a stand-in), then a brand-new connection + worker picking the workflow's
+  second task back up (`fixtures/l1-two-task-workflow.ts`, same
+  two-workflow-task shape as I5's fixture, for the same reason — see below).
+  This proves SDK/connection-level reconnection, **not** server-outage
+  survival — the real embedded server stays up and unaffected throughout,
+  by design. Per the same honesty principle behind the six report statuses,
+  L1's `TestResult.target` and every message/hint say this explicitly (e.g.
+  `"...connection-loss only, not full server outage"`) — never let this
+  check's PASS read as a broader claim than what it actually tested. If
+  `@temporalio/testing` ever exposes real server pause/resume, this is the
+  check to revisit — not to replace, since connection-loss recovery remains
+  a real thing worth testing on its own, but to add the faithful version
+  alongside it.
 
-Both write-ups are preserved in this project's history for whoever builds
-them — the short version is: neither is a code problem, both are an
-architecture decision (child-process worker boot for I1; a disposable
-private environment for L1) that should be made deliberately, not
-discovered by a confusing test failure.
+Both use the CLAUDE.md "Zero-fixture checks needing their own probe
+workflow" pattern (private environment, not the shared `env`) and I5/D1's
+documented exception to `withRunningWorker` where a check genuinely needs
+more than one worker lifecycle in a row.
+
+## Interrupt-safe cleanup (`src/engines/dynamic/cleanup-registry.ts`)
+
+Before I1 existed, `withEphemeralEnvironment`'s SIGINT/SIGTERM handler only
+knew about the ONE environment it wrapped: on Ctrl+C it tore that down, then
+called `process.exit()` — which terminates the process before any check's
+own `finally` block gets a chance to run. That was invisible as long as
+every disposable resource a check might hold was just in-process JS state
+(nothing to leak once the process is gone), but I1/L1's own private
+environments, and I1's real OS child-process workers, are both external
+resources that outlive a bare `process.exit()` if nothing explicitly kills
+them first.
+
+`registerCleanup(fn)` / `runAllCleanups()` fix this generically: anything
+that owns a disposable resource registers a cleanup for it (and unregisters
+once its own normal, non-interrupted cleanup has run, so nothing double-runs).
+`withEphemeralEnvironment` registers its own env's teardown through this
+same mechanism rather than special-casing itself, so its SIGINT handler now
+runs the FULL set of currently-registered cleanups — the main env, plus
+whatever a check has registered on its own (I1/L1's private env,
+`spawnKillableWorker`'s spawned process) — not just its own. Any future
+check that owns its own disposable resource (a private environment, a
+spawned process, anything else that would leak past a bare `process.exit()`)
+should register it here the same way.
+
+Verified for real, not just reasoned through: spawned `verify-sigint.ts`
+(a standalone script running `checkI1WorkerCrashRecovery`) as its own OS
+process, confirmed a real killable child-worker process was alive via `ps`,
+sent it a genuine `SIGINT` from outside, and confirmed the whole process
+tree (the ephemeral server *and* the child-worker process) was gone
+afterward — no orphans, no zombies (`ps` showed no `Z` state entries, and a
+reaped child no longer answers `kill(pid, 0)` at all, which is what
+`spawnKillableWorker`'s `kill()` waits on before resolving).
+
+## Spawning a real child-process worker without a dist/src path split
+
+`child-worker.ts`'s `spawnKillableWorker` needs to run `child-worker-entry.ts`
+as a genuinely separate OS process, both under `vitest` (source `.ts` on
+disk) and from the built `dist/cli.js` (compiled `.js` on disk, no `.ts`
+sibling — `tsc` doesn't copy source files, only emits compiled output). This
+is the same class of bug as the fixture-copy gotcha below, but the fix here
+is different and simpler: `child-worker-entry.ts`'s compiled `.js` output is
+already valid on its own (it isn't consumed by Temporal's workflow bundler
+the way `checks/fixtures/*.ts` files are, so there's no reason to require
+raw source for it), so instead of adding a copy step, `child-worker.ts`
+resolves its own sibling entry file by matching **its own** file extension
+(`import.meta.url.endsWith(".ts") ? ".ts" : ".js"`) and always spawns it via
+`node --import tsx <path>` — `tsx` transforms `.ts` and passes `.js` through
+as a no-op, so the same spawn command works unmodified in both run modes. If
+you ever add a second script meant to be spawned as its own process, use
+this same self-extension-matching approach rather than hardcoding `.ts` (that
+mistake shipped once already during I1's build, and only surfaced by
+actually running `dist/cli.js`, not `vitest` — the exact failure mode the
+fixture-copy note below warns about).
 
 ## Config schema scope
 
