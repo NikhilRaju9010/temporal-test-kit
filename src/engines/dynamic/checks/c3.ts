@@ -3,8 +3,16 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C3")!;
+
+// Bounded wait for each query call, well under the orchestrator's 15s
+// per-check ceiling (see CLAUDE.md's "Per-check timeout and error
+// isolation"). Newly added here — this check previously called
+// handle.query() three times with no bound at all, the same unbounded-wait
+// shape found and fixed in c1.ts/c2.ts.
+const QUERY_TIMEOUT_MS = 5_000;
 
 /**
  * N_A gating on `features.updates` happens in the orchestrator (cli.ts),
@@ -49,7 +57,11 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
       });
 
       try {
-        const beforeInvalid = queryName ? await handle.query(queryName) : null;
+        const beforeInvalid = queryName
+          ? await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
+              throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+            })
+          : null;
 
         let invalidRejected = false;
         try {
@@ -72,7 +84,9 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
         }
 
         if (queryName) {
-          const afterInvalid = await handle.query(queryName);
+          const afterInvalid = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
+            throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+          });
           if (JSON.stringify(beforeInvalid) !== JSON.stringify(afterInvalid)) {
             return {
               ...base,
@@ -109,7 +123,9 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
         }
 
         if (queryName) {
-          const afterValid = await handle.query(queryName);
+          const afterValid = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
+            throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+          });
           if (JSON.stringify(beforeInvalid) === JSON.stringify(afterValid)) {
             return {
               ...base,

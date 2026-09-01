@@ -5,6 +5,7 @@ import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { i5ContinueSignal } from "./fixtures/i5-two-task-workflow.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I5")!;
 
@@ -125,12 +126,9 @@ export async function checkI5StickyRecovery(
       // the new (second) worker is around to pick this up.
       await handle.signal(i5ContinueSignal);
 
-      result = await Promise.race([
-        handle.result(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`)), RESULT_WAIT_MS),
-        ),
-      ]);
+      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
+        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      });
     } catch (e) {
       error = e as Error;
     } finally {

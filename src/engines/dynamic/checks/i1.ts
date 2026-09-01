@@ -7,6 +7,7 @@ import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "
 import { generateWorkflowId } from "../workflow-id.js";
 import { spawnKillableWorker } from "../child-worker.js";
 import { registerCleanup } from "../cleanup-registry.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I1")!;
 
@@ -118,12 +119,9 @@ export async function checkI1WorkerCrashRecovery(
 
     let error: Error | undefined;
     try {
-      await Promise.race([
-        handle.result(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`)), RESULT_WAIT_MS),
-        ),
-      ]);
+      await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
+        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      });
     } catch (e) {
       error = e as Error;
     } finally {

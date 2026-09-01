@@ -4,6 +4,7 @@ import { missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId } from "../child-workflow-events.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H3")!;
 const CHILD_START_TIMEOUT_MS = 6_000;
@@ -117,10 +118,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
 
       await handle.cancel();
 
-      await Promise.race([
-        handle.result().catch(() => {}),
-        new Promise((resolve) => setTimeout(resolve, RESULT_WAIT_MS)),
-      ]);
+      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
 
       const parentHistory = await handle.fetchHistory();
       const parentEvents = parentHistory.events ?? [];

@@ -4,6 +4,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I3")!;
 const RUN_TIMEOUT_MS = 10_000;
@@ -35,10 +36,7 @@ export async function recordWorkflowHistory(
       args: [],
     });
 
-    await Promise.race([
-      handle.result().catch(() => {}),
-      new Promise((resolve) => setTimeout(resolve, RUN_TIMEOUT_MS)),
-    ]);
+    await raceWithTimeout(handle.result().catch(() => {}), RUN_TIMEOUT_MS, () => undefined);
 
     const history = await handle.fetchHistory();
     return { history, workflowId };

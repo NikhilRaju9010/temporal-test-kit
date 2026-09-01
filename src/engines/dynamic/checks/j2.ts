@@ -4,6 +4,7 @@ import { CATALOG } from "../../../catalog.js";
 import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "J2")!;
 const IndexedValueType = proto.temporal.api.enums.v1.IndexedValueType;
@@ -108,12 +109,9 @@ export const checkJ2SearchAttributes: DynamicFixtureCheckFn = async (env, target
       typedSearchAttributes,
     });
 
-    const description = await Promise.race([
-      handle.describe(),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error(`describe() did not resolve within ${DESCRIBE_WAIT_MS}ms`)), DESCRIBE_WAIT_MS),
-      ),
-    ]);
+    const description = await raceWithTimeout(handle.describe(), DESCRIBE_WAIT_MS, () => {
+      throw new Error(`describe() did not resolve within ${DESCRIBE_WAIT_MS}ms`);
+    });
 
     const mismatches: string[] = [];
     for (const key of searchAttributeKeys) {

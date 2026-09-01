@@ -6,6 +6,7 @@ import { generateWorkflowId } from "../workflow-id.js";
 import { registerCleanup } from "../cleanup-registry.js";
 import { l1ContinueSignal } from "./fixtures/l1-two-task-workflow.js";
 import { join } from "node:path";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "L1")!;
 
@@ -123,12 +124,9 @@ export async function checkL1ConnectionLossRecovery(
     let error: Error | undefined;
     try {
       await handle.signal(l1ContinueSignal);
-      result = await Promise.race([
-        handle.result(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`)), RESULT_WAIT_MS),
-        ),
-      ]);
+      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
+        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      });
     } catch (e) {
       error = e as Error;
     } finally {

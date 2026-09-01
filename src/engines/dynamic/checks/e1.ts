@@ -3,6 +3,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "E1")!;
 
@@ -71,12 +72,9 @@ export async function checkE1ContinueAsNew(
     let result: string | undefined;
     let error: Error | undefined;
     try {
-      result = await Promise.race([
-        handle.result(),
-        new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`)), RESULT_WAIT_MS),
-        ),
-      ]);
+      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
+        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      });
     } catch (e) {
       error = e as Error;
     }

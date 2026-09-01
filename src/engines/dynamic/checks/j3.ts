@@ -2,6 +2,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "J3")!;
 
@@ -96,10 +97,7 @@ export async function checkJ3FailureMessages(
       args: [],
     });
 
-    await Promise.race([
-      handle.result().catch(() => {}),
-      new Promise((resolve) => setTimeout(resolve, WAIT_TIMEOUT_MS)),
-    ]);
+    await raceWithTimeout(handle.result().catch(() => {}), WAIT_TIMEOUT_MS, () => undefined);
 
     // Source of truth for the terminal state is `describe()`, not whether
     // the raced `result()` promise above happened to settle before the
@@ -118,7 +116,7 @@ export async function checkJ3FailureMessages(
         await handle.terminate("temporal-test-kit J3 check: bounded wait expired, no failure produced").catch(
           () => {},
         );
-        await Promise.race([handle.result().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 3_000))]);
+        await raceWithTimeout(handle.result().catch(() => {}), 3_000, () => undefined);
       }
 
       return {

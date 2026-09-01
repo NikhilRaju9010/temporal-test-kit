@@ -2,6 +2,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I4")!;
 
@@ -33,10 +34,7 @@ export async function proveCorrectQueuePickup(
       args: [],
     });
 
-    await Promise.race([
-      handle.result().catch(() => {}),
-      new Promise((resolve) => setTimeout(resolve, CORRECT_QUEUE_WAIT_MS)),
-    ]);
+    await raceWithTimeout(handle.result().catch(() => {}), CORRECT_QUEUE_WAIT_MS, () => undefined);
 
     const description = await handle.describe();
     return {
