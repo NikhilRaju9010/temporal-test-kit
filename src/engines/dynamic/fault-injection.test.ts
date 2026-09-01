@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { join } from "node:path";
-import { createEphemeralEnvironment } from "./environment.js";
+import { createEphemeralEnvironment, bootWorker } from "./environment.js";
 import { withFaultInjectedWorker } from "./fault-injection.js";
 import { generateWorkflowId } from "./workflow-id.js";
 import { runAllCleanups } from "./cleanup-registry.js";
@@ -117,5 +117,42 @@ describe("withFaultInjectedWorker (real @temporalio/testing + sample project)", 
         await env.teardown();
       },
     );
+  }, 30_000);
+
+  it("shuts the worker down immediately when the signal aborts, even though fn never returns", async () => {
+    const env = await createEphemeralEnvironment();
+    try {
+      const activities = await loadActivities();
+      const target = { taskQueue: "ttk-fault-test-abort", workflowsPath: WORKFLOWS_PATH, activities };
+      const controller = new AbortController();
+
+      const hangingCall = withFaultInjectedWorker(
+        env,
+        target,
+        "formatGreetingActivity",
+        async () => "fault",
+        () => new Promise(() => {}), // never resolves
+        controller.signal,
+      );
+
+      controller.abort();
+
+      await expect(
+        Promise.race([
+          hangingCall.then(
+            () => "resolved",
+            () => "rejected",
+          ),
+          new Promise((resolve) => setTimeout(() => resolve("still pending"), 5_000)),
+        ]),
+      ).resolves.not.toBe("still pending");
+
+      // Same taskQueue as target — proves the worker actually released its
+      // registration, not just that the outer call settled.
+      const result = await bootWorker(env, target);
+      expect(result.booted).toBe(true);
+    } finally {
+      await env.teardown();
+    }
   }, 30_000);
 });

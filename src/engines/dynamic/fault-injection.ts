@@ -1,6 +1,7 @@
 import { Worker } from "@temporalio/worker";
 import { EphemeralEnvironment, WorkerTarget } from "./environment.js";
 import { registerCleanup } from "./cleanup-registry.js";
+import { raceWithSignal } from "./race.js";
 
 /**
  * Boots a worker against `env` running the project's REAL activities and
@@ -37,6 +38,7 @@ export async function withFaultInjectedWorker<T>(
   faultActivityName: string,
   replacement: (...args: unknown[]) => unknown,
   fn: (worker: Worker) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   if (!(faultActivityName in target.activities)) {
     throw new Error(
@@ -69,7 +71,12 @@ export async function withFaultInjectedWorker<T>(
   const unregister = registerCleanup(shutdownOnce);
 
   try {
-    return await fn(worker);
+    return await raceWithSignal(fn(worker), signal, async () => {
+      await shutdownOnce();
+      throw new Error(
+        "withFaultInjectedWorker: aborted (check timed out) — worker was shut down without waiting for its own callback to finish.",
+      );
+    });
   } finally {
     unregister();
     await shutdownOnce();
