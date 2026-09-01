@@ -17,19 +17,37 @@ export interface CheckMeta {
  * result to a report, so a hang or a bug inside one check can never block
  * the whole audit run or get misreported as a finding about the project
  * under test.
+ *
+ * `fn` receives an `AbortSignal` that fires the moment this timeout expires.
+ * A check that owns a live worker (via `withRunningWorker`/
+ * `withFaultInjectedWorker`, forwarding this same signal) uses it to shut
+ * that worker down immediately on timeout, instead of leaving it registered
+ * on its task queue for the rest of the audit run while `fn`'s own abandoned
+ * promise sits forever unawaited — the exact scenario that produced a real
+ * "Registration of multiple workers with overlapping worker task types"
+ * error from the NEXT check sharing that queue (see CLAUDE.md's now-resolved
+ * "Known gap" section for the original reproduction). This function itself
+ * does not wait for `fn` to actually unwind after aborting it — `fn`'s
+ * result (or continued hang) no longer matters once ERRORED has been
+ * reported; what matters is that downstream, whatever `fn` was holding open
+ * gets torn down as soon as the signal fires.
  */
 export async function runCheckWithGuards(
-  fn: () => Promise<TestResult>,
+  fn: (signal: AbortSignal) => Promise<TestResult>,
   meta: CheckMeta,
   timeoutMs: number = DEFAULT_CHECK_TIMEOUT_MS,
 ): Promise<TestResult> {
+  const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new Error(`Check timed out after ${timeoutMs}ms`)), timeoutMs);
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Check timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
   });
 
   try {
-    return await Promise.race([fn(), timeout]);
+    return await Promise.race([fn(controller.signal), timeout]);
   } catch (e) {
     const error = e as Error;
     const timedOut = /timed out after/.test(error.message);

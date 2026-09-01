@@ -35,3 +35,30 @@ export function raceWithTimeout<T>(
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
+
+/**
+ * Races `promise` against `signal` firing, resolving with `onAbort()`'s
+ * value if the signal wins. Used to make an otherwise-unbounded wait (e.g.
+ * `withRunningWorker`'s callback, which may itself be waiting on something
+ * with no timeout of its own) settle promptly once `runCheckWithGuards`'s
+ * timeout fires and calls `controller.abort()`, instead of staying
+ * suspended forever with nothing left awaiting it. `signal` is optional so
+ * every existing direct call site (tests, `bootWorker`) that doesn't pass
+ * one keeps working unchanged.
+ */
+export function raceWithSignal<T>(
+  promise: Promise<T>,
+  signal: AbortSignal | undefined,
+  onAbort: () => T | PromiseLike<T>,
+): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.resolve(onAbort());
+
+  let listener: () => void;
+  const aborted = new Promise<T>((resolve) => {
+    listener = () => resolve(onAbort());
+    signal.addEventListener("abort", listener, { once: true });
+  });
+
+  return Promise.race([promise, aborted]).finally(() => signal.removeEventListener("abort", listener));
+}

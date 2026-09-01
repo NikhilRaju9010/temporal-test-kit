@@ -57,4 +57,31 @@ describe("runCheckWithGuards", () => {
     expect(result.hint).toBeTruthy();
     expect(result.message).toMatch(/timed out/i);
   });
+
+  it("aborts the signal passed to fn when the check times out", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    const result = await runCheckWithGuards(
+      (signal) => {
+        capturedSignal = signal;
+        return new Promise<TestResult>(() => {}); // never resolves
+      },
+      meta,
+      50,
+    );
+    expect(result.status).toBe("ERRORED");
+    expect(capturedSignal?.aborted).toBe(true);
+  });
+
+  it("does not abort the signal when the check succeeds within the timeout", async () => {
+    let capturedSignal: AbortSignal | undefined;
+    await runCheckWithGuards(
+      async (signal) => {
+        capturedSignal = signal;
+        return passResult;
+      },
+      meta,
+      5000,
+    );
+    expect(capturedSignal?.aborted).toBe(false);
+  });
 });
