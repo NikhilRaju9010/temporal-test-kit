@@ -326,7 +326,7 @@ A check file's own exported function should just return a `TestResult`
 never try to catch its own bugs into ERRORED, and never implement its own
 timeout. That's the orchestrator's job, done once.
 
-### Known gap: the timeout doesn't actually cancel the hung check (real resource leak, reproduced)
+### Resolved: the timeout now actually cancels the hung check
 
 `runCheckWithGuards`'s timeout is `Promise.race([fn(), timeoutPromise])`. When
 `timeoutPromise` wins, `fn()` is **not cancelled** — there is no
@@ -355,16 +355,43 @@ Temporal server error: `"Registration of multiple workers with overlapping
 worker task types... task_queue: orders"` — proof the first check's worker
 was still live and holding that queue.
 
-Not fixed here — this is a real architectural gap, not a one-line patch.
-Whoever picks it up: the general direction is threading a cancellation
-signal (`AbortSignal` or similar) from `runCheckWithGuards` through to
-`withRunningWorker`/`withFaultInjectedWorker`/each check's own internal
-waits, so a check can actually be torn down on timeout rather than merely
-stopped-being-awaited. A narrower, partial mitigation — auditing every
-check's OWN internal waits to confirm none of them are unbounded (always
-race against something, per this file's own established pattern) — would
-at least guarantee "leaked worker eventually shuts down late" instead of
-"leaked worker never shuts down," without solving true cancellation.
+**How this was fixed**: `runCheckWithGuards` (`src/engines/dynamic/run-check.ts`)
+now creates an `AbortController` up front and passes `controller.signal` into
+`fn`, calling `controller.abort()` in the same `setTimeout` callback that
+rejects with the timeout error. `withRunningWorker` and
+`withFaultInjectedWorker` (`environment.ts`/`fault-injection.ts`) both gained
+an optional trailing `signal` parameter: internally, `fn(worker)` is raced
+against the signal via the new `raceWithSignal` helper
+(`src/engines/dynamic/race.ts`, alongside `raceWithTimeout`) — when the
+signal wins, the worker's existing `shutdownOnce()` (`worker.shutdown()` +
+`await runPromise`) runs immediately, before the call unwinds, releasing the
+task-queue registration even though the check's own callback never returns.
+The 25 check files that own a live worker
+(`a1,a3,a4,b3,b4,b5,c1,c2,c3,c4,c5,e1,e2,f1,f2,g1,h1,h2,h3,i3,i4,j1,j3,k2,l2`)
+each accept an optional trailing `signal` parameter and forward it into
+their own `withRunningWorker`/`withFaultInjectedWorker` call; `cli.ts`
+creates nothing extra itself — it just passes the `signal` `runCheckWithGuards`
+hands its wrapper closure straight through to the check function. The three
+documented two-sequential-worker exceptions (`d1.ts`/`i5.ts`/`l1.ts`, which
+call `Worker.create()` directly rather than through `withRunningWorker`) and
+the checks with no live worker at all (`i1.ts`'s private-env child-process
+pattern, `k1.ts`, `d2.ts`/`d3.ts`/`d4.ts`, `j2.ts`) are out of scope for this
+signal-threading — they don't own the kind of shared-task-queue registration
+this fix protects against.
+
+**Re-verified against the exact original reproduction**: ran `init` then
+`audit` against the worked-example template (a query against `OrderWorkflow`,
+which this sample project doesn't define) — `"overlapping worker task
+types"` no longer appears anywhere in the output, and the report shows
+**0 errored** checks (the previously-hanging query checks now fail cleanly
+and fast, at their own bounded timeout, instead of riding the per-check
+ceiling to `ERRORED`). `cli-init-audit.e2e.test.ts` locks in both of these
+as real assertions now. Total wall-clock time for that audit run did NOT
+drop — still ~4.5 minutes — because that reflects genuine per-check bounded
+waits (D2/D3's real-time Schedule waits, several checks' own 5-15s
+query/result timeouts, summed across every workflow entry × ~49 checks),
+never the collision bug itself; the e2e test stays in `test:e2e` rather than
+moving to the default suite for that reason.
 
 ## Workflow ID convention
 
