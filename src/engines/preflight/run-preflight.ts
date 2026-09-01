@@ -1,4 +1,4 @@
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { LoadConfigResult } from "../../config/load.js";
 import { PreflightReport } from "../../report/types.js";
 import {
@@ -40,10 +40,11 @@ export async function runPreflight(options: RunPreflightOptions): Promise<Prefli
     return { passed: false, results, fatalMessage: null };
   }
 
-  const workflowsPath = join(options.projectRoot, "src", "workflows.ts");
+  const workerDir = dirname(join(options.projectRoot, config.workerEntryPoint));
+  const workflowsPath = join(workerDir, "workflows.ts");
   let activities: Record<string, unknown>;
   try {
-    activities = await import(join(options.projectRoot, "src", "activities.ts"));
+    activities = await import(join(workerDir, "activities.ts"));
   } catch (e) {
     return {
       passed: false,
