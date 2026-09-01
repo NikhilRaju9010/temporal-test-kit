@@ -38,6 +38,7 @@ export const PROBE_PAYLOAD = {
 export async function checkA4DataIntegrity(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -118,7 +119,7 @@ export async function checkA4DataIntegrity(
         "correctness bug — it would corrupt EVERY workflow's input, not just this test. Check for a custom or " +
         "misconfigured data converter/codec on the client or worker.",
     };
-  });
+  }, signal);
 }
 
 function deepEqual(a: unknown, b: unknown): boolean {

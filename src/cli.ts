@@ -104,6 +104,7 @@ function staticResults(projectRoot: string, workflowsPath: string): TestResult[]
 type ZeroFixtureCheckFn = (
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ) => Promise<TestResult>;
 
 /**
@@ -149,13 +150,17 @@ async function zeroFixtureDynamicResults(
       const entry = CATALOG.find((c) => c.id === id)!;
       results.push(
         await runCheckWithGuards(
-          () =>
-            fn(env, {
-              workflowType: workflow.type,
-              taskQueue: workflow.taskQueue,
-              workflowsPath,
-              activities,
-            }),
+          (signal) =>
+            fn(
+              env,
+              {
+                workflowType: workflow.type,
+                taskQueue: workflow.taskQueue,
+                workflowsPath,
+                activities,
+              },
+              signal,
+            ),
           {
             id: entry.id,
             category: entry.category,
@@ -248,7 +253,7 @@ async function dynamicFixtureResults(
 
       results.push(
         await runCheckWithGuards(
-          () => fn(env, { ...workflow, workflowsPath, activities }, features),
+          (signal) => fn(env, { ...workflow, workflowsPath, activities }, features, signal),
           {
             id: entry.id,
             category: entry.category,

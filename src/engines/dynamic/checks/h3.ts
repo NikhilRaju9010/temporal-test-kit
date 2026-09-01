@@ -51,7 +51,7 @@ const RESULT_WAIT_MS = 10_000;
  * (the CancelRequested event actually reaching it) is what this check can
  * honestly claim to verify generically.
  */
-export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (env, target) => {
+export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -187,7 +187,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
           "demonstrably reached it.",
         hint: null,
       };
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

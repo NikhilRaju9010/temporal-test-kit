@@ -144,7 +144,7 @@ interface FieldSearch {
  * event history, as recorded by whatever data converter this project's
  * client is actually configured with.
  */
-export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env, target) => {
+export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -183,7 +183,7 @@ export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env,
       );
       const history = await handle.fetchHistory();
       return history.events ?? [];
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

@@ -51,7 +51,7 @@ const POLICY_SETTLE_POLL_INTERVAL_MS = 300;
  * would be exactly the false-flag mistake G1's own doc comment warns
  * against (flagging correct, policy-intended behavior as a bug).
  */
-export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target) => {
+export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -188,7 +188,7 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
           "single policy value present in this project's fixture.",
         hint: null,
       };
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

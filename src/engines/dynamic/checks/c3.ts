@@ -30,7 +30,7 @@ const QUERY_TIMEOUT_MS = 5_000;
  * state DOES change, so a validator that rejects EVERYTHING (never truly
  * gating anything through) can't pass by accident.
  */
-export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target) => {
+export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -163,7 +163,7 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
       } finally {
         await handle.cancel().catch(() => {});
       }
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

@@ -29,6 +29,7 @@ const NO_FIXTURE_HINT_SUFFIX =
 export async function checkA1WorkflowStarts(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -124,5 +125,5 @@ export async function checkA1WorkflowStarts(
         `The workflow reached a terminal state other than COMPLETED or FAILED (status: ${statusName}), which is ` +
         `unexpected for a normal run. ${NO_FIXTURE_HINT_SUFFIX}`,
     };
-  });
+  }, signal);
 }

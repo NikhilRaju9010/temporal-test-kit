@@ -38,6 +38,7 @@ const RESULT_WAIT_MS = 15_000;
 export async function checkE1ContinueAsNew(
   env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -86,7 +87,7 @@ export async function checkE1ContinueAsNew(
     );
 
     return { result, error, continuedAsNew };
-  });
+  }, signal);
 
   if (outcome.error) {
     return {

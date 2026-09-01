@@ -79,6 +79,7 @@ export function extractFailureMessage(error: unknown): string {
 export async function checkJ3FailureMessages(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -154,5 +155,5 @@ export async function checkJ3FailureMessages(
       message: `${target.workflowType} failed with a specific error message: "${failureMessage}"`,
       hint: null,
     };
-  });
+  }, signal);
 }

@@ -28,8 +28,12 @@ async function raceDuplicateStart(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   workflowId: string,
+  signal?: AbortSignal,
 ): Promise<RaceOutcome> {
-  return withRunningWorker(env, target, async () => {
+  return withRunningWorker(
+    env,
+    target,
+    async () => {
     const [a, b] = await Promise.allSettled([
       env.client.workflow.start(target.workflowType, {
         taskQueue: target.taskQueue,
@@ -58,11 +62,13 @@ async function raceDuplicateStart(
       return { kind: "both-succeeded" };
     }
 
-    const detail = [a, b]
-      .map((r) => (r.status === "fulfilled" ? "fulfilled" : `rejected: ${(r.reason as Error)?.message ?? r.reason}`))
-      .join(" | ");
-    return { kind: "unexpected", detail };
-  });
+      const detail = [a, b]
+        .map((r) => (r.status === "fulfilled" ? "fulfilled" : `rejected: ${(r.reason as Error)?.message ?? r.reason}`))
+        .join(" | ");
+      return { kind: "unexpected", detail };
+    },
+    signal,
+  );
 }
 
 /**
@@ -78,6 +84,7 @@ const MAX_ATTEMPTS = 3;
 export async function checkA3DuplicateStart(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -91,7 +98,7 @@ export async function checkA3DuplicateStart(
 
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
     const workflowId = generateWorkflowId("A3", target.workflowType);
-    const outcome = await raceDuplicateStart(env, target, workflowId);
+    const outcome = await raceDuplicateStart(env, target, workflowId, signal);
     lastOutcome = outcome;
 
     if (outcome.kind === "duplicate-rejected") {

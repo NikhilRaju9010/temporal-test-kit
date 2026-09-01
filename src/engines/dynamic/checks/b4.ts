@@ -172,10 +172,14 @@ export interface RecordedRun {
 export async function recordActivityExecutions(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<RecordedRun> {
   const workflowId = generateWorkflowId("B4", target.workflowType);
 
-  return withRunningWorker(env, target, async () => {
+  return withRunningWorker(
+    env,
+    target,
+    async () => {
     const handle = await env.client.workflow.start(target.workflowType, {
       taskQueue: target.taskQueue,
       workflowId,
@@ -209,7 +213,9 @@ export async function recordActivityExecutions(
     const history = await handle.fetchHistory();
     const activities = extractActivityExecutions(history, heartbeatSeenActivityIds);
     return { history, workflowId, activities };
-  });
+    },
+    signal,
+  );
 }
 
 /**
@@ -262,6 +268,7 @@ export async function recordActivityExecutions(
 export async function checkB4Heartbeats(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -273,7 +280,7 @@ export async function checkB4Heartbeats(
 
   let recorded: RecordedRun;
   try {
-    recorded = await recordActivityExecutions(env, target);
+    recorded = await recordActivityExecutions(env, target, signal);
   } catch (e) {
     return {
       ...base,

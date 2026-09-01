@@ -24,24 +24,30 @@ export interface CorrectQueueProof {
 export async function proveCorrectQueuePickup(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<CorrectQueueProof> {
   const workflowId = generateWorkflowId("I4", target.workflowType);
 
-  return withRunningWorker(env, target, async () => {
-    const handle = await env.client.workflow.start(target.workflowType, {
-      taskQueue: target.taskQueue,
-      workflowId,
-      args: [],
-    });
+  return withRunningWorker(
+    env,
+    target,
+    async () => {
+      const handle = await env.client.workflow.start(target.workflowType, {
+        taskQueue: target.taskQueue,
+        workflowId,
+        args: [],
+      });
 
-    await raceWithTimeout(handle.result().catch(() => {}), CORRECT_QUEUE_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), CORRECT_QUEUE_WAIT_MS, () => undefined);
 
-    const description = await handle.describe();
-    return {
-      onExpectedQueue: description.taskQueue === target.taskQueue,
-      reportedTaskQueue: description.taskQueue,
-    };
-  });
+      const description = await handle.describe();
+      return {
+        onExpectedQueue: description.taskQueue === target.taskQueue,
+        reportedTaskQueue: description.taskQueue,
+      };
+    },
+    signal,
+  );
 }
 
 export interface WrongQueueProof {
@@ -85,6 +91,7 @@ export async function proveWrongQueueNeverPicksUp(
 export async function checkI4TaskQueue(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -94,7 +101,7 @@ export async function checkI4TaskQueue(
     engine: "dynamic-zero-fixture" as const,
   };
 
-  const correct = await proveCorrectQueuePickup(env, target);
+  const correct = await proveCorrectQueuePickup(env, target, signal);
   const wrong = await proveWrongQueueNeverPicksUp(env, target);
 
   if (correct.onExpectedQueue && wrong.staysUnpickedUp) {

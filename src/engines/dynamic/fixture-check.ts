@@ -18,4 +18,5 @@ export type DynamicFixtureCheckFn = (
   env: EphemeralEnvironment,
   target: DynamicFixtureTarget,
   features: FeaturesConfig,
+  signal?: AbortSignal,
 ) => Promise<TestResult>;

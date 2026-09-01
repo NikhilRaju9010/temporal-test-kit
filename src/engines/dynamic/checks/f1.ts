@@ -49,7 +49,7 @@ const INJECTED_FAILURE_MESSAGE = "temporal-test-kit F1: forced failure to test f
  *      to know what a correct reaction beyond "don't swallow it" looks
  *      like for an arbitrary project.
  */
-export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, target) => {
+export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -103,7 +103,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
         // discovering the activity name, not producing a real result.
         await handle.terminate("temporal-test-kit F1 check: discovery probe complete").catch(() => {});
       }
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,
@@ -150,6 +150,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
         await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
         return handle.fetchHistory();
       },
+      signal,
     );
     events = history.events ?? [];
   } catch (e) {

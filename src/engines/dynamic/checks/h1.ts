@@ -28,7 +28,7 @@ const RESULT_WAIT_MS = 10_000;
  * narrower, evidence-based bar (any post-cancellation activity, not a
  * specific named one) is stated explicitly in the PASS message.
  */
-export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, target) => {
+export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -129,7 +129,7 @@ export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, targe
           "the intended cleanup step versus, e.g., an unrelated activity that happened to be in flight.",
         hint: null,
       };
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

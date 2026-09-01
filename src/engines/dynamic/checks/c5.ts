@@ -26,7 +26,7 @@ const RESPONSE_WAIT_MS = 8_000;
  * genuinely stuck workflow reports a real FAIL rather than silently
  * consuming the whole check timeout as an ERRORED.
  */
-export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, target, features) => {
+export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, target, features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -114,7 +114,7 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
       } finally {
         await handle.cancel().catch(() => {});
       }
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

@@ -28,7 +28,7 @@ const QUERY_WAIT_MS = 5_000;
  * actually happened to the query result as informational context, not a
  * pass/fail bar by itself.
  */
-export const checkC1Signals: DynamicFixtureCheckFn = async (env, target) => {
+export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -118,7 +118,7 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target) => {
       } finally {
         await handle.cancel().catch(() => {});
       }
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

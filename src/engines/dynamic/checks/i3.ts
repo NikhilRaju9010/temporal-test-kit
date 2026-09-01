@@ -26,6 +26,7 @@ export interface RecordedHistory {
 export async function recordWorkflowHistory(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<RecordedHistory> {
   const workflowId = generateWorkflowId("I3", target.workflowType);
 
@@ -40,7 +41,7 @@ export async function recordWorkflowHistory(
 
     const history = await handle.fetchHistory();
     return { history, workflowId };
-  });
+  }, signal);
 }
 
 export interface ReplayResult {
@@ -65,6 +66,7 @@ export async function replayHistory(
 export async function checkI3Replay(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -76,7 +78,7 @@ export async function checkI3Replay(
 
   let recorded: RecordedHistory;
   try {
-    recorded = await recordWorkflowHistory(env, target);
+    recorded = await recordWorkflowHistory(env, target, signal);
   } catch (e) {
     return {
       ...base,

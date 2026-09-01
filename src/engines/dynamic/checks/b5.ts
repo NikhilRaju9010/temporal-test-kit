@@ -45,10 +45,14 @@ async function startAndCancel(
   workflowType: string,
   workflowsPath: string,
   testId: string,
+  signal?: AbortSignal,
 ): Promise<CancellationOutcome> {
   const workerTarget: WorkerTarget = { workflowsPath, activities, taskQueue };
 
-  return withRunningWorker(env, workerTarget, async () => {
+  return withRunningWorker(
+    env,
+    workerTarget,
+    async () => {
     const handle = await env.client.workflow.start(workflowType, {
       taskQueue,
       workflowId: generateWorkflowId(testId, workflowType),
@@ -74,8 +78,10 @@ async function startAndCancel(
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
 
-    return { finalStatus, cancelError };
-  });
+      return { finalStatus, cancelError };
+    },
+    signal,
+  );
 }
 
 /**
@@ -121,6 +127,7 @@ async function startAndCancel(
 export async function checkB5CancellationStops(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -137,6 +144,7 @@ export async function checkB5CancellationStops(
     target.workflowType,
     target.workflowsPath,
     "B5",
+    signal,
   );
 
   if (primary.finalStatus === "CANCELLED") {
@@ -172,6 +180,7 @@ export async function checkB5CancellationStops(
     CONTROL_WORKFLOW_TYPE,
     CONTROL_FIXTURE_PATH,
     "B5-control",
+    signal,
   );
 
   const raceNote =

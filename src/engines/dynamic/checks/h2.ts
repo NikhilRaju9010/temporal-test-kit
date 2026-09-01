@@ -82,6 +82,7 @@ export async function terminateAndAwaitTerminated(
 export async function checkH2TerminateSkipsCleanup(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
+  signal?: AbortSignal,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -143,5 +144,5 @@ export async function checkH2TerminateSkipsCleanup(
         "explicitly told to stop — investigate Temporal server/worker health, since terminate() is server-driven " +
         "and isn't supposed to depend on the workflow code cooperating at all.",
     };
-  });
+  }, signal);
 }

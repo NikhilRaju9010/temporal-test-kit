@@ -34,7 +34,7 @@ const INJECTED_FAILURE_MESSAGE = "temporal-test-kit G1: forced failure to test s
  * reports what happens after the failure point only as informational
  * context in the PASS message, never as a pass/fail signal.
  */
-export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target) => {
+export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -69,6 +69,7 @@ export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target
         await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
         return handle.fetchHistory();
       },
+      signal,
     );
     events = history.events ?? [];
   } catch (e) {

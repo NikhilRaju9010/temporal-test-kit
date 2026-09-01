@@ -96,7 +96,7 @@ const DISCOVERY_POLL_INTERVAL_MS = 150;
  * side of the reset. The PASS message says this explicitly, same honesty
  * standard as B3/G1/L1.
  */
-export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (env, target) => {
+export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (env, target, _features, abortSignal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -304,7 +304,7 @@ export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (
           `check's signal path actually exercised.`,
         hint: null,
       };
-    });
+    }, abortSignal);
   } catch (e) {
     return {
       ...base,

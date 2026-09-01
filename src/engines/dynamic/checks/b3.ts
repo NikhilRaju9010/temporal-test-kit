@@ -57,7 +57,7 @@ const FORCED_RETRY_MESSAGE = "temporal-test-kit B3: forcing a retry after a succ
  * to any function the SDK invokes as an activity regardless of how it got
  * registered.
  */
-export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target) => {
+export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -102,7 +102,7 @@ export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target) => 
       });
       await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
       return handle.fetchHistory();
-    });
+    }, signal);
     events = history.events ?? [];
   } catch (e) {
     return {

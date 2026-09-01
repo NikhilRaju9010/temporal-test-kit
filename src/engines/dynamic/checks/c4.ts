@@ -22,7 +22,7 @@ const EventType = proto.temporal.api.enums.v1.EventType;
  * fully generically: exactly one, not two, proving Update-with-Start didn't
  * create a duplicate execution.
  */
-export const checkC4UpdateWithStart: DynamicFixtureCheckFn = async (env, target) => {
+export const checkC4UpdateWithStart: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -89,7 +89,7 @@ export const checkC4UpdateWithStart: DynamicFixtureCheckFn = async (env, target)
       } finally {
         await handle.cancel().catch(() => {});
       }
-    });
+    }, signal);
   } catch (e) {
     return {
       ...base,

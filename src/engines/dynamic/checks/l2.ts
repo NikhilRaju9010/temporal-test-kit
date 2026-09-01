@@ -80,7 +80,7 @@ const RECOVER_AT_ATTEMPT = 3;
  * tolerated (same scope-honesty treatment as L1's connection-loss-only
  * claim and B3's "doesn't prove dedup" claim).
  */
-export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env, target) => {
+export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -124,7 +124,7 @@ export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env
       });
       await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
       return handle.fetchHistory();
-    });
+    }, signal);
     events = history.events ?? [];
   } catch (e) {
     return {
