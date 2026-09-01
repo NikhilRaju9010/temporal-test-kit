@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { join } from "node:path";
-import { withEphemeralEnvironment, bootWorker, EphemeralEnvironment } from "./environment.js";
+import { withEphemeralEnvironment, bootWorker, withRunningWorker, EphemeralEnvironment } from "./environment.js";
 import { registerCleanup } from "./cleanup-registry.js";
 
 const SAMPLE_PROJECT = join(import.meta.dirname, "..", "..", "..", "examples", "sample-project");
@@ -64,5 +64,60 @@ describe("withEphemeralEnvironment SIGINT handling", () => {
     );
 
     expect(envTeardown).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("withRunningWorker abort behavior", () => {
+  it("shuts the worker down immediately when the signal aborts, even though fn never returns — and a fresh worker can then register on the same task queue without colliding", async () => {
+    await withEphemeralEnvironment(async (env) => {
+      const activities = await import(join(SAMPLE_PROJECT, "src", "activities.ts"));
+      const target = {
+        workflowsPath: join(SAMPLE_PROJECT, "src", "workflows.ts"),
+        activities,
+        taskQueue: "ttk-environment-test-abort",
+      };
+      const controller = new AbortController();
+
+      const hangingCall = withRunningWorker(
+        env,
+        target,
+        () => new Promise(() => {}), // never resolves — same shape as the reproduced C2 hang
+        controller.signal,
+      );
+
+      controller.abort();
+
+      // The call must settle (reject, since fn itself never resolved) promptly —
+      // not hang forever. A generous but bounded wait proves this without a flaky race.
+      await expect(
+        Promise.race([
+          hangingCall.then(
+            () => "resolved",
+            () => "rejected",
+          ),
+          new Promise((resolve) => setTimeout(() => resolve("still pending"), 5_000)),
+        ]),
+      ).resolves.not.toBe("still pending");
+
+      // The real proof: a second worker on the SAME task queue registers cleanly.
+      // Before this fix, this would throw "Registration of multiple workers with
+      // overlapping worker task types" because the first worker was still live.
+      const result = await bootWorker(env, target);
+      expect(result.booted).toBe(true);
+      expect(result.error).toBeNull();
+    });
+  }, 20_000);
+
+  it("still behaves exactly as before when no signal is passed (bootWorker's own call site)", async () => {
+    await withEphemeralEnvironment(async (env) => {
+      const activities = await import(join(SAMPLE_PROJECT, "src", "activities.ts"));
+      const result = await bootWorker(env, {
+        workflowsPath: join(SAMPLE_PROJECT, "src", "workflows.ts"),
+        activities,
+        taskQueue: "default",
+      });
+      expect(result.booted).toBe(true);
+      expect(result.error).toBeNull();
+    });
   });
 });

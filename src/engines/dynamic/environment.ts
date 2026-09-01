@@ -1,6 +1,7 @@
 import { TestWorkflowEnvironment } from "@temporalio/testing";
 import { Worker } from "@temporalio/worker";
 import { registerCleanup, runAllCleanups } from "./cleanup-registry.js";
+import { raceWithSignal } from "./race.js";
 
 export type EphemeralEnvironment = Awaited<ReturnType<typeof TestWorkflowEnvironment.createLocal>>;
 
@@ -80,6 +81,7 @@ export async function withRunningWorker<T>(
   env: EphemeralEnvironment,
   target: WorkerTarget,
   fn: (worker: Worker) => Promise<T>,
+  signal?: AbortSignal,
 ): Promise<T> {
   const worker = await Worker.create({
     connection: env.nativeConnection,
@@ -94,11 +96,30 @@ export async function withRunningWorker<T>(
     // an unhandled rejection while `fn` is still running.
   });
 
-  try {
-    return await fn(worker);
-  } finally {
+  let shutdown = false;
+  const shutdownOnce = async () => {
+    if (shutdown) return;
+    shutdown = true;
     worker.shutdown();
     await runPromise;
+  };
+
+  try {
+    return await raceWithSignal(fn(worker), signal, async () => {
+      // The caller (runCheckWithGuards) has already timed out and reported
+      // ERRORED — fn's own promise is abandoned here (same abandon-and-move-on
+      // pattern already used for runPromise above), but the worker itself must
+      // still shut down for real: this is what releases its task-queue
+      // registration so the NEXT check sharing this queue doesn't collide with
+      // it. See CLAUDE.md's now-resolved "Known gap" section for what this
+      // fixes.
+      await shutdownOnce();
+      throw new Error(
+        "withRunningWorker: aborted (check timed out) — worker was shut down without waiting for its own callback to finish.",
+      );
+    });
+  } finally {
+    await shutdownOnce();
   }
 }
 
