@@ -448,6 +448,47 @@ copies to import it, then replace each bare `Promise.race([x, new
 Promise(...setTimeout...)])` in the 20 files above with a call to it. Purely
 mechanical, file-by-file, low risk — no design decisions left to make.
 
+**Status update**: done — `raceWithTimeout`/`raceWithSignal` now live in
+`src/engines/dynamic/race.ts`, `e2.ts`/`k2.ts`/`l2.ts` import it instead of
+carrying local copies, and all 20 files above are converted. Two more
+instances of the same bare pattern turned up during the conversion sweep,
+beyond this originally-diagnosed list: `e1.ts` had its own bare
+`Promise.race([handle.result(), setTimeout...])` inside a `withRunningWorker`
+callback, and `c1.ts`/`c2.ts`/`c3.ts` had unbounded `handle.query()` calls
+with no race/timeout at all (a related but distinct shape — no timer to leak
+in the first place; `c1.ts`'s specifically is what actually produced the
+`OrderWorkflow` collision documented in the "Known gap" section above, not
+any file on the original 20-file list). All fixed the same way. A
+comprehensive `grep -rn "Promise.race(\[" src/` and a separate sweep for bare
+`.query(` calls both confirm nothing else remains as of this fix.
+
+**Real-world impact, re-verified**: two consecutive full `npx vitest run`
+passes after this fix show **zero** orphaned `temporal-sdk-typescript`
+ephemeral-server OS processes (confirmed via `ps aux`) — the severe symptom
+this section originally escalated to is closed.
+
+**A second, DIFFERENT "Channel has been shut down" source, found while
+re-verifying this fix — still present, out of scope for this fix**: the
+exact same unhandled-exception message still reproduces on both post-fix
+full-suite runs, identically attributed to `l2.test.ts`, but its stack trace
+traces to `node_modules/@temporalio/client/src/grpc-retry.ts`'s own
+`setTimeout(retry, ...)` — the Temporal SDK client's built-in gRPC retry
+interceptor, applied transparently to every client call, entirely outside
+this codebase. When a client call (e.g. `handle.result()`) hits a transient
+retryable gRPC status right as a test's `env.teardown()` is closing the
+channel, the SDK's own scheduled retry can fire against the now-closed
+channel — producing this exact error, independent of whether any of OUR
+timers were cleared. This means the original diagnosis linking this specific
+log line to our own uncleared-Promise.race pattern was a plausible-looking
+but ultimately incorrect correlation — converting every check file in this
+codebase (all 20 plus the 4 more found above) had zero effect on it, which
+is the evidence that ruled out our own code as the cause. Unlike the
+resolved issue above, this one causes no test failures and, per the same
+`ps aux` check, no orphaned processes — cosmetic log noise from SDK-internal
+retry/teardown timing, not a resource leak. Not fixed here; flagging for
+whoever next investigates full-suite log noise, so it isn't re-attributed to
+this codebase's own timer hygiene a second time.
+
 ## Testing
 
 TDD throughout: a failing test before any production code. Preflight checks
