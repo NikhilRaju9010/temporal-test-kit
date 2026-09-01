@@ -4,6 +4,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "K2")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -17,23 +18,6 @@ const EventType = proto.temporal.api.enums.v1.EventType;
 // workflows behind and lets any activities that echo the value back
 // (result/failure payloads) get a chance to record it too.
 const RESULT_WAIT_MS = 10_000;
-
-/**
- * `Promise.race([promise, timeoutPromise])` alone leaves the LOSING side's
- * `setTimeout` uncleared when `promise` wins — a real, confirmed bug class
- * (see e2.ts's own copy of this helper for where it was diagnosed): the
- * dangling timer can outlive this check's own `env.teardown()` and later
- * surface as an unhandled "Channel has been shut down" gRPC error
- * attributed to whatever runs next. Always clear the timer on whichever
- * side wins.
- */
-function raceWithTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T | PromiseLike<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(onTimeout()), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
 
 /**
  * Recursively searches `input` for an own property named `fieldName`,

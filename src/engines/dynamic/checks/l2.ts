@@ -6,6 +6,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "L2")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -121,13 +122,7 @@ export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env
         workflowId,
         args,
       });
-      let resultTimer: ReturnType<typeof setTimeout>;
-      await Promise.race([
-        handle.result().catch(() => {}),
-        new Promise((resolve) => {
-          resultTimer = setTimeout(resolve, RESULT_WAIT_MS);
-        }),
-      ]).finally(() => clearTimeout(resultTimer));
+      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
       return handle.fetchHistory();
     });
     events = history.events ?? [];

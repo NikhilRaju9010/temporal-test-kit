@@ -5,26 +5,9 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "E2")!;
-
-/**
- * `Promise.race([promise, timeoutPromise])` alone leaves the LOSING side's
- * `setTimeout` uncleared when `promise` wins — a dangling timer that fires
- * later regardless. Harmless on its own, but chained across several calls
- * in this check's loop, those uncleared timers piled up and outlived
- * `env.teardown()` in practice (observed as an unhandled "Channel has been
- * shut down" gRPC error attributed to whichever test happened to be
- * running when a stale timer's callback finally fired) — always clear the
- * timer on whichever side wins.
- */
-function raceWithTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T | PromiseLike<T>): Promise<T> {
-  let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(onTimeout()), ms);
-  });
-  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
-}
 
 // How many times this check sends the configured signal before giving up
 // waiting for a WorkflowExecutionContinuedAsNew event to show up. This is a
