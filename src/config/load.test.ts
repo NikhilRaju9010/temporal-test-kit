@@ -46,4 +46,32 @@ describe("loadConfig", () => {
     }
     rmSync(dir, { recursive: true, force: true });
   });
+
+  it("loads a JSONC file with // comments (the shape `init` generates)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "ttk-"));
+    const file = join(dir, "temporal-test-kit.config.json");
+    writeFileSync(
+      file,
+      [
+        "// temporal-test-kit.config.json",
+        "{",
+        '  "project": "sample", // the project name',
+        '  "workerEntryPoint": "./src/worker.ts",',
+        '  "taskQueues": ["default"],',
+        '  "workflows": [',
+        "    // GreetingWorkflow needs no fixture data to run",
+        '    { "type": "GreetingWorkflow", "taskQueue": "default" }',
+        "  ]",
+        "}",
+      ].join("\n"),
+    );
+
+    const result = loadConfig(file);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.config.project).toBe("sample");
+      expect(result.config.workflows).toHaveLength(1);
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
 });

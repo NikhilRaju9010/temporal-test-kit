@@ -11,7 +11,8 @@
     "build": "tsc && npm run copy-fixtures",
     "copy-fixtures": "mkdir -p dist/engines/dynamic/checks/fixtures && cp src/engines/dynamic/checks/fixtures/*.ts dist/engines/dynamic/checks/fixtures/",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts"
   },
   "engines": {
     "node": ">=18"

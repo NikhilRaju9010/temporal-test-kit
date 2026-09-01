@@ -326,6 +326,46 @@ A check file's own exported function should just return a `TestResult`
 never try to catch its own bugs into ERRORED, and never implement its own
 timeout. That's the orchestrator's job, done once.
 
+### Known gap: the timeout doesn't actually cancel the hung check (real resource leak, reproduced)
+
+`runCheckWithGuards`'s timeout is `Promise.race([fn(), timeoutPromise])`. When
+`timeoutPromise` wins, `fn()` is **not cancelled** — there is no
+`AbortController`/cancellation threaded through any check, so the loser just
+keeps running, completely detached, with nothing left awaiting it. The
+orchestrator correctly reports `ERRORED` for that check's row in the output,
+but whatever the abandoned `fn()` was doing internally — most importantly, a
+worker it registered via `withRunningWorker` — keeps running for real. If the
+check's own internal wait had a bound (most do, e.g. a `Promise.race` against
+its own shorter timeout), that abandoned worker eventually shuts down on its
+own once that inner wait settles, just later than the report suggests. But if
+a check's internal wait has NO bound of its own (e.g. `handle.query(...)`
+with nothing racing it, awaiting a workflow that will never answer because it
+never actually started), the abandoned worker **never** shuts down — for the
+rest of that audit run's process lifetime, `withRunningWorker`'s own `finally`
+(`worker.shutdown()` + await) can't run because the callback holding it open
+never returns.
+
+This is not theoretical — it was reproduced running a real audit against
+`init`'s own generated template (worked-example workflow names that don't
+exist in the target project): a check waiting on a query to `OrderWorkflow`
+(which never started, since that workflow type isn't real) hung past its
+15s timeout and reported `ERRORED` as designed, but the NEXT check to run
+against the same `taskQueue` ("orders") then failed for real, with a
+Temporal server error: `"Registration of multiple workers with overlapping
+worker task types... task_queue: orders"` — proof the first check's worker
+was still live and holding that queue.
+
+Not fixed here — this is a real architectural gap, not a one-line patch.
+Whoever picks it up: the general direction is threading a cancellation
+signal (`AbortSignal` or similar) from `runCheckWithGuards` through to
+`withRunningWorker`/`withFaultInjectedWorker`/each check's own internal
+waits, so a check can actually be torn down on timeout rather than merely
+stopped-being-awaited. A narrower, partial mitigation — auditing every
+check's OWN internal waits to confirm none of them are unbounded (always
+race against something, per this file's own established pattern) — would
+at least guarantee "leaked worker eventually shuts down late" instead of
+"leaked worker never shuts down," without solving true cancellation.
+
 ## Workflow ID convention
 
 Because Phase 2b runs all 16 zero-fixture checks against one shared `env`
@@ -360,10 +400,22 @@ Phase 3 checks:
   attributed to `l2.test.ts`, while multiple agents' test suites ran
   concurrently under heavy load. Root-caused to `l2.ts`'s own uncleared
   `Promise.race` timer and fixed. Re-verified afterward: this class of
-  error **only reproduces under the full 50-file suite's own concurrency**
-  (never in an isolated single-file run, and never fails an actual test
-  assertion) — so it's a real but low-severity, load-dependent flake, not
-  something blocking day-to-day development.
+  error **still reproduces** running the full suite (`npx vitest run`)
+  even with `l2.ts` fixed, still attributed to `l2.test.ts` — confirming
+  it's actually coming from one of the other ~20 still-unfixed files, just
+  surfacing at whatever moment `l2.test.ts` happens to be the active file
+  when a stale timer from elsewhere finally fires. Never reproduces
+  running any single file in isolation.
+- **Severity update, found running the full suite during Phase 4 work**:
+  this is NOT purely cosmetic console noise. One `npx vitest run` left TWO
+  real orphaned `temporal-sdk-typescript` ephemeral-server OS processes
+  behind (confirmed via `ps` — both reparented to PID 1/init, meaning
+  their own process's `env.teardown()` never ran before that process
+  exited/crashed). Manually `kill -9`'d as part of that verification pass.
+  This means the full-suite flake isn't just a scary-looking stack trace —
+  it can genuinely leak real child processes that outlive the test run
+  entirely. Worth treating as a real resource leak, not merely log noise,
+  when this gets prioritized.
 
 **The fix** (already applied in `e2.ts`, `k2.ts`, `l2.ts` — each has its own
 local copy of the same few lines, not a shared export yet): wrap the race in

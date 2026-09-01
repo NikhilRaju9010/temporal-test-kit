@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import { TestKitConfig, validateConfig } from "./schema.js";
+import { stripJsonLineComments } from "./jsonc.js";
 
 export type LoadConfigResult =
   | { ok: true; config: TestKitConfig }
@@ -12,7 +13,7 @@ export function loadConfig(path: string): LoadConfigResult {
 
   let parsed: unknown;
   try {
-    parsed = JSON.parse(readFileSync(path, "utf-8"));
+    parsed = JSON.parse(stripJsonLineComments(readFileSync(path, "utf-8")));
   } catch (e) {
     return { ok: false, reason: `Config file contains invalid JSON: ${(e as Error).message}` };
   }

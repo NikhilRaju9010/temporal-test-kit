@@ -4,3 +4,4 @@ dist/
 temporal-test-kit-report/
 examples/*/node_modules/
 examples/*/dist/
+examples/.tmp-init-audit-e2e/

@@ -2,6 +2,8 @@
 import { readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { loadConfig } from "./config/load.js";
+import { writeInitConfig } from "./config/write-init-config.js";
+import { computeListLines } from "./list-command.js";
 import { runPreflight } from "./engines/preflight/run-preflight.js";
 import { EphemeralEnvironment, WorkerTarget, withEphemeralEnvironment } from "./engines/dynamic/environment.js";
 import { checkA1WorkflowStarts } from "./engines/dynamic/checks/a1.js";
@@ -61,10 +63,12 @@ function usage(): void {
       "Usage: temporal-test-kit <command>",
       "",
       "Commands:",
+      "  init    Generate a starter temporal-test-kit.config.json in the current project.",
       "  run     Run the static engine only.",
-      "  audit   Run preflight + static + zero-fixture dynamic checks (Phase 2a scope).",
+      "  audit   Run preflight + static + zero-fixture dynamic + fixture-based dynamic checks.",
+      "  audit --list   Print all checks' would-run/needs-fixture/N-A/not-covered status, without running anything.",
       "",
-      "Not yet implemented (later phases): init, --list, --interactive",
+      "Not yet implemented (later phases): --interactive",
     ].join("\n"),
   );
 }
@@ -273,6 +277,21 @@ function notCoveredResults(): TestResult[] {
   }));
 }
 
+function runList(projectRoot: string): void {
+  const configPath = join(projectRoot, CONFIG_FILENAME);
+  const configResult = loadConfig(configPath);
+  if (!configResult.ok) {
+    console.error(configResult.reason);
+    process.exitCode = 1;
+    return;
+  }
+
+  console.log(`temporal-test-kit --list — all ${CATALOG.length} checks against the current config, without running anything:\n`);
+  for (const line of computeListLines(configResult.config)) {
+    console.log(line);
+  }
+}
+
 async function runAudit(projectRoot: string): Promise<void> {
   const configPath = join(projectRoot, CONFIG_FILENAME);
   const configResult = loadConfig(configPath);
@@ -327,6 +346,19 @@ async function runStaticOnly(projectRoot: string): Promise<void> {
   process.exitCode = results.some((r) => r.status === "FAIL") ? 1 : 0;
 }
 
+function runInit(projectRoot: string): void {
+  const result = writeInitConfig(projectRoot);
+  if (!result.ok) {
+    console.error(result.reason);
+    process.exitCode = 1;
+    return;
+  }
+  console.log(
+    `Wrote a starter ${CONFIG_FILENAME} to ${result.path}.\n` +
+      'Fill in the fields your project needs (see the comments in the file), then run "temporal-test-kit audit".',
+  );
+}
+
 async function main(): Promise<void> {
   const [, , command] = process.argv;
   const projectRoot = resolve(process.cwd());
@@ -336,9 +368,15 @@ async function main(): Promise<void> {
       await runStaticOnly(projectRoot);
       break;
     case "audit":
-      await runAudit(projectRoot);
+      if (process.argv.includes("--list")) {
+        runList(projectRoot);
+      } else {
+        await runAudit(projectRoot);
+      }
       break;
     case "init":
+      runInit(projectRoot);
+      break;
     case undefined:
       usage();
       break;

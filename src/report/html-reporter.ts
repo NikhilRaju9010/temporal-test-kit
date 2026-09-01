@@ -70,6 +70,7 @@ export function renderHtmlReport(preflight: PreflightReport, results: TestResult
 </head>
 <body>
 <h1>temporal-test-kit report</h1>
+<p style="font-size:15px;margin:4px 0 16px;">Overall: ${summary.PASS} passed, ${summary.FAIL} failed, ${summary.SKIPPED} skipped, ${summary.N_A} n/a, ${summary.NOT_COVERED} not covered, ${summary.ERRORED} errored</p>
 <h2>Preflight</h2>
 ${preflightHtml}
 <h2>Results</h2>
