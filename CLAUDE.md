@@ -340,6 +340,62 @@ collision-safe across every check and also makes IDs recognizable by test in
 the Temporal Web UI while debugging. See `i3.ts`'s `recordWorkflowHistory`
 for the reference usage.
 
+## Known follow-up cleanup: uncleared `Promise.race` timers (~20 files, not yet fixed)
+
+Every check that bounds a real SDK call with a timeout uses the pattern
+`Promise.race([realPromise, new Promise(resolve => setTimeout(resolve, MS))])`.
+When `realPromise` wins the race, that pattern leaves the losing side's
+`setTimeout` **uncleared** — a dangling timer that still fires later
+regardless, on its own schedule, with nothing left to do.
+
+This was diagnosed twice, independently, while building the last several
+Phase 3 checks:
+
+- **E2**: the dangling timer combined with a rapid, zero-delay signal-burst
+  loop to reliably produce lost signals around a Continue-As-New boundary
+  (a real, confirmed Temporal SDK/protocol caveat — separate root cause,
+  see `e2.ts`'s `SIGNAL_BUDGET` comment) *and* an unhandled `"Channel has
+  been shut down"` gRPC error once the timer outlived `env.teardown()`.
+- **K2/L2**: the same `"Channel has been shut down"` error surfaced,
+  attributed to `l2.test.ts`, while multiple agents' test suites ran
+  concurrently under heavy load. Root-caused to `l2.ts`'s own uncleared
+  `Promise.race` timer and fixed. Re-verified afterward: this class of
+  error **only reproduces under the full 50-file suite's own concurrency**
+  (never in an isolated single-file run, and never fails an actual test
+  assertion) — so it's a real but low-severity, load-dependent flake, not
+  something blocking day-to-day development.
+
+**The fix** (already applied in `e2.ts`, `k2.ts`, `l2.ts` — each has its own
+local copy of the same few lines, not a shared export yet): wrap the race in
+something that clears the timer on whichever side wins, e.g.
+
+```ts
+function raceWithTimeout<T>(promise: Promise<T>, ms: number, onTimeout: () => T | PromiseLike<T>): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((resolve) => {
+    timer = setTimeout(() => resolve(onTimeout()), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+```
+
+**Not yet fixed** — confirmed via `grep` to still have the bare,
+timer-leaking pattern (`Promise.race` + `setTimeout`, no `clearTimeout`
+anywhere in the file):
+`a1.ts`, `a4.ts`, `b3.ts`, `b4.ts`, `c1.ts`, `c5.ts`, `d1.ts`, `e1.ts`,
+`f1.ts`, `g1.ts`, `h1.ts`, `h3.ts`, `i1.ts`, `i3.ts`, `i4.ts`, `i5.ts`,
+`j1.ts`, `j2.ts`, `j3.ts`, `l1.ts` — 20 files, all already-shipped and
+passing today. None of these have been observed to actually fail a test or
+leak a process from this specific pattern; this is a real latent bug worth
+closing, not an active incident.
+
+Whoever picks this up: extract `raceWithTimeout` into a shared module
+(`src/engines/dynamic/race-with-timeout.ts` or similar) rather than
+copy-pasting a fourth/fifth local definition, update the three existing
+copies to import it, then replace each bare `Promise.race([x, new
+Promise(...setTimeout...)])` in the 20 files above with a call to it. Purely
+mechanical, file-by-file, low risk — no design decisions left to make.
+
 ## Testing
 
 TDD throughout: a failing test before any production code. Preflight checks
