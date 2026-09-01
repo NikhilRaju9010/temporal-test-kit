@@ -181,9 +181,15 @@ const DYNAMIC_FIXTURE_CHECKS: { id: string; fn: DynamicFixtureCheckFn; timeoutMs
   { id: "C3", fn: checkC3UpdateValidation },
   { id: "C4", fn: checkC4UpdateWithStart },
   { id: "C5", fn: checkC5NoStuckOnSignalUpdate },
-  { id: "D2", fn: checkD2SchedulesFireOnTime },
-  { id: "D3", fn: checkD3OverlappingSchedules },
-  { id: "D4", fn: checkD4MissedSchedules },
+  // D2/D3 each wait several real intervals of a throwaway Schedule they
+  // create (env is createLocal(), not time-skipping — see d2.ts's doc
+  // comment), so they legitimately need more than the default 15s budget.
+  // D4 doesn't wait out real time (it uses ScheduleHandle.backfill()
+  // instead — see d4.ts) but still gets a bit of headroom for its short
+  // describe()-polling loop.
+  { id: "D2", fn: checkD2SchedulesFireOnTime, timeoutMs: 30_000 },
+  { id: "D3", fn: checkD3OverlappingSchedules, timeoutMs: 30_000 },
+  { id: "D4", fn: checkD4MissedSchedules, timeoutMs: 20_000 },
   { id: "E2", fn: checkE2ContinueAsNewStatePreserved },
   // F1 runs a two-phase probe (a normal run to generically discover which
   // activity its child workflow calls, since no config field names it —

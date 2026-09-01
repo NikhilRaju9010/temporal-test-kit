@@ -47,6 +47,17 @@ export interface FeaturesConfig {
   childWorkflows?: boolean;
   nexus?: boolean;
   schedules?: boolean;
+  /**
+   * The workflow TYPE (not a schedule's own ID, despite the field name —
+   * see d2.ts's doc comment for the full resolution) that D2/D3/D4 create
+   * their own throwaway recurring Schedule against. Repurposed from the
+   * spec's Appendix A example (`"daily-rollover-schedule"`, which reads
+   * like an existing schedule to query) because querying a pre-existing
+   * schedule is impossible here: `env` is always a fresh, unpersisted
+   * `TestWorkflowEnvironment.createLocal()` server with no real
+   * infrastructure behind it. Pick a fast, side-effect-light workflow —
+   * these checks fire it repeatedly in a short real-time window.
+   */
   scheduleWorkflowId?: string;
   searchAttributes?: boolean;
   customSearchAttributeKeys?: string[];
