@@ -7,6 +7,10 @@
     "temporal-test-kit": "./bin/temporal-test-kit.js"
   },
   "main": "./dist/cli.js",
+  "files": [
+    "bin",
+    "dist"
+  ],
   "scripts": {
     "prepare": "npm run build",
     "build": "tsc -p tsconfig.build.json && npm run copy-fixtures",
