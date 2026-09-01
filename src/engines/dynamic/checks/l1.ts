@@ -5,13 +5,13 @@ import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "
 import { generateWorkflowId } from "../workflow-id.js";
 import { registerCleanup } from "../cleanup-registry.js";
 import { l1ContinueSignal } from "./fixtures/l1-two-task-workflow.js";
-import { join } from "node:path";
 import { raceWithTimeout } from "../race.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "L1")!;
 
 const TASK_QUEUE = "ttk-l1";
-const WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "l1-two-task-workflow.ts");
+const WORKFLOWS_PATH = fixturePath(import.meta.url, import.meta.dirname, "l1-two-task-workflow");
 const STARTUP_WAIT_MS = 300;
 const RESULT_WAIT_MS = 10_000;
 

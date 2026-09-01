@@ -84,22 +84,39 @@ of `target.workflowType`, its `TestResult.target` should say so explicitly
 (e.g. `"D1TimerWorkflow (internal probe)"`) and a code comment should explain
 why — this is a deliberate, documented choice, not an oversight.
 
-**Fixture workflow files must be copied into `dist/`, not just compiled** —
-`npm run build` runs `tsc` then a `copy-fixtures` step
-(`cp src/engines/dynamic/checks/fixtures/*.ts dist/.../fixtures/`). This
-exists because Temporal's own worker bundler consumes a `workflowsPath`
-pointing at TypeScript *source*, not `tsc`'s compiled `.js` output — the same
-reason `i3.ts` points `workflowsPath` at a target project's raw `.ts` files
-rather than anything this tool compiles. `tsc` only emits `.js`/`.d.ts` for
-files under `src`; it does not copy the original `.ts` alongside them. Without
-this step, every check with its own probe fixture works fine under `vitest`
-(which resolves `.ts` straight from `src/`) but throws `ENOENT` the moment
-you run the *built* CLI (`dist/cli.js`) — this actually happened during
-Phase 2b integration and is why this step exists. If you add a new probe
-fixture, no action needed — the copy step already globs the whole
-`fixtures/` directory — but if you ever change the fixture path resolution
-logic, re-verify against `dist/cli.js`, not just `vitest`, since that's the
-one path individual unit/integration tests don't exercise.
+**Fixture workflow paths must match their own extension, not hardcode `.ts`**
+(resolved via `src/engines/dynamic/fixture-path.ts`'s `fixturePath()`, the
+same self-extension-matching pattern `child-worker.ts` already established
+for `child-worker-entry.ts`). D1/E1/H2/I1/I5/L1 each bring their own
+throwaway probe workflow fixture and pass its path as `workflowsPath` to
+`Worker.create()` — `fixturePath(import.meta.url, import.meta.dirname,
+"d1-timer-workflow")` picks `.ts` when the calling check module is itself
+running from source (`vitest`, or dev via `tsx`, where only the `.ts`
+exists) and `.js` when running from the built `dist/` (where `tsc`'s normal
+compile — fixtures live under `src/`, no separate step needed — already
+produces a working `.js` right alongside it).
+
+This used to be hardcoded to `.ts` unconditionally, with a separate
+`copy-fixtures` build step copying the raw `.ts` files into `dist/` so that
+path would resolve there too — added after an `ENOENT` crash surfaced
+running the built `dist/cli.js` directly (Phase 2b). That fix was
+incomplete in a way `dist/cli.js` alone could never reveal: it worked
+running this repo's own `dist/cli.js` directly, but reproduced with a real
+`npm install git+...` into a genuinely separate project (Phase 5's
+distribution work) — Temporal's own workflow-bundling webpack config, like
+most webpack/ts-loader setups, does not transform TypeScript found under
+`node_modules`, so a real consumer's bundler choked trying to parse raw
+`.ts` under `node_modules/temporal-test-kit/dist/...`, for exactly the six
+checks that hardcoded that extension. `fixturePath()` fixes this by always
+resolving to whichever extension is genuinely already-valid JavaScript (or
+already-correctly-handled TypeScript-via-tsx) for the current run mode — no
+copy step, no raw `.ts` ever placed under `dist/`. If you add a new probe
+fixture, use `fixturePath()` for its `workflowsPath`/`activities` path, same
+as the existing six; if you ever change this resolution logic, re-verify
+against a REAL external install (`npm install git+file://...` into a
+project outside this repo), not just `vitest` or `dist/cli.js` run locally
+— both of those are exactly the two paths that let the previous bug ship
+unnoticed.
 
 ## Where the master 49-test catalog lives
 

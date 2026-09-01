@@ -1,14 +1,14 @@
-import { join } from "node:path";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "E1")!;
 
 const TASK_QUEUE = "ttk-e1";
-const WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "e1-continue-as-new-workflow.ts");
+const WORKFLOWS_PATH = fixturePath(import.meta.url, import.meta.dirname, "e1-continue-as-new-workflow");
 const RESULT_WAIT_MS = 15_000;
 
 /**

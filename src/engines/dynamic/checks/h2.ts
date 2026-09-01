@@ -1,9 +1,9 @@
-import { join } from "node:path";
 import { WorkflowHandle } from "@temporalio/client";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H2")!;
 
@@ -22,7 +22,7 @@ const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H2")!;
  * probe workflow, not the project's own workflow.
  */
 const PROBE_WORKFLOW_TYPE = "H2ProbeWorkflow";
-const PROBE_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "h2-hanging-workflow.ts");
+const PROBE_WORKFLOWS_PATH = fixturePath(import.meta.url, import.meta.dirname, "h2-hanging-workflow");
 
 // Bounded grace period for the terminated execution to actually reach
 // TERMINATED, kept comfortably under the orchestrator's 15s per-check

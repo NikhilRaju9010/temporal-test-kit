@@ -1,16 +1,16 @@
 import { Worker } from "@temporalio/worker";
-import { join } from "node:path";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { i5ContinueSignal } from "./fixtures/i5-two-task-workflow.js";
 import { raceWithTimeout } from "../race.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I5")!;
 
 const TASK_QUEUE = "ttk-i5";
-const WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "i5-two-task-workflow.ts");
+const WORKFLOWS_PATH = fixturePath(import.meta.url, import.meta.dirname, "i5-two-task-workflow");
 const STARTUP_WAIT_MS = 300;
 const RESULT_WAIT_MS = 10_000;
 

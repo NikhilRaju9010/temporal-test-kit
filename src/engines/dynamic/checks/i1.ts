@@ -8,12 +8,13 @@ import { generateWorkflowId } from "../workflow-id.js";
 import { spawnKillableWorker } from "../child-worker.js";
 import { registerCleanup } from "../cleanup-registry.js";
 import { raceWithTimeout } from "../race.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I1")!;
 
 const TASK_QUEUE = "ttk-i1";
-const WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "i1-side-effect-workflow.ts");
-const ACTIVITIES_PATH = join(import.meta.dirname, "fixtures", "i1-activities.ts");
+const WORKFLOWS_PATH = fixturePath(import.meta.url, import.meta.dirname, "i1-side-effect-workflow");
+const ACTIVITIES_PATH = fixturePath(import.meta.url, import.meta.dirname, "i1-activities");
 const ACTIVITY_DELAY_MS = 1_500;
 const MARKER_POLL_INTERVAL_MS = 50;
 const MARKER_WAIT_TIMEOUT_MS = 10_000;

@@ -5,10 +5,9 @@ import { EphemeralEnvironment } from "./environment.js";
 import { registerCleanup } from "./cleanup-registry.js";
 
 /**
- * `child-worker-entry.ts` is spawned via `tsx`, never `Worker.create()`'s
- * `workflowsPath` mechanism, so — unlike checks/fixtures/*.ts — it does NOT
- * need the copy-fixtures build step to reach `dist/`; `tsc` already emits a
- * working `child-worker-entry.js` there on its own. The only wrinkle is
+ * `child-worker-entry.ts` is spawned via `tsx`, and `tsc` already emits a
+ * working `child-worker-entry.js` right alongside it in `dist/` as part of
+ * the normal build — no separate copy step needed. The only wrinkle is
  * picking the RIGHT sibling file: this module resolves its own entry path
  * by matching its own file extension, so it spawns `child-worker-entry.ts`
  * when running from source (under `vitest`, where only the `.ts` exists)
@@ -16,6 +15,8 @@ import { registerCleanup } from "./cleanup-registry.js";
  * (where only the `.js` exists) — never hardcode one extension here, or the
  * other run mode breaks. `tsx` handles both identically (a no-op transform
  * for already-plain JS), so the spawn command itself doesn't need to branch.
+ * The dynamic-check fixtures under `checks/fixtures/*.ts` (`fixture-path.ts`)
+ * use this exact same self-extension-matching pattern for the same reason.
  */
 const SELF_EXTENSION = import.meta.url.endsWith(".ts") ? ".ts" : ".js";
 const ENTRY_PATH = join(import.meta.dirname, `child-worker-entry${SELF_EXTENSION}`);
