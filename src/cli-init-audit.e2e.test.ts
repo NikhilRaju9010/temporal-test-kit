@@ -57,15 +57,30 @@ function runCli(cwd: string, args: string[], timeoutMs: number): Promise<{ code:
  * suggested.
  *
  * This test locks in the "doesn't crash, produces a well-formed report"
- * guarantee. It deliberately does NOT assert zero orphaned in-process
- * workers — running init's template against a project with mismatched
- * workflow names is EXACTLY the scenario that surfaces the known,
- * documented (not-yet-fixed) runCheckWithGuards cancellation gap in
- * CLAUDE.md ("the timeout doesn't actually cancel the hung check"): a
- * check waiting on a query to a workflow that never started can hang past
- * its own timeout and leave a worker registered for the rest of THIS
- * audit run's process lifetime. That's a real, separately-tracked issue,
- * not something to paper over with a narrower test.
+ * guarantee. `runCheckWithGuards`'s cancellation gap (CLAUDE.md's former
+ * "Known gap") is now fixed: a check waiting on a query to a workflow that
+ * never started (this exact scenario — OrderWorkflow's queries against
+ * OrderWorkflow, which this sample project doesn't define) now shuts its
+ * worker down on timeout instead of leaving it registered, so the report
+ * this run produces has ZERO errored checks (every hung-query check fails
+ * cleanly and fast instead), and no later check collides with
+ * "Registration of multiple workers with overlapping worker task types" —
+ * both manually re-verified against this exact repro before writing this
+ * comment. This test still does NOT assert zero orphaned in-process
+ * workers as part of its own automated assertions (that's covered more
+ * directly and cheaply by environment.test.ts's/fault-injection.test.ts's
+ * own abort-behavior unit tests instead) — it locks in the report's
+ * *shape*, not process-table state, which is a slower and noisier thing
+ * to assert reliably from inside a spawned-subprocess test.
+ *
+ * This run still takes several minutes wall-clock, same order of
+ * magnitude as before the cancellation fix — that's NOT the fixed bug
+ * resurfacing; it's genuine per-check bounded waits (D2/D3's real-time,
+ * non-time-skippable Schedule waits at 30s each, several checks' own
+ * 5-15s query/result timeouts, all summed across two workflow entries ×
+ * ~49 checks) that were always part of a full audit's real cost, never
+ * caused by the collision bug. Stays in `test:e2e`, not moved to the
+ * default suite, for that reason.
  */
 describe("temporal-test-kit init + audit end-to-end (real first-run experience)", () => {
   it("init generates a loadable config, and audit against it (zero edits, real project code) produces a complete, well-formed report — not a crash, not a hang", async () => {
@@ -87,22 +102,35 @@ describe("temporal-test-kit init + audit end-to-end (real first-run experience)"
       expect(initResult.code).toBe(0);
       expect(initResult.stdout).toMatch(/Wrote a starter/);
 
-      // Generous budget: this run deliberately hits the known, documented
-      // runCheckWithGuards cancellation gap (a check waiting on a query to
-      // a workflow that never started — because the template's example
-      // workflow types don't exist in sample-project's real code — hangs
-      // out its full 15s timeout more than once across the check suite).
+      // Generous budget: even with the cancellation gap fixed, a full audit
+      // against two workflow entries × ~49 checks genuinely takes several
+      // minutes (D2/D3's real-time Schedule waits, several checks' own
+      // 5-15s query/result timeouts) — that's real per-check cost, not the
+      // fixed bug resurfacing.
       const auditResult = await runCli(dir, ["audit"], 300_000);
 
       // The process must exit with a real, defined code — not crash with an
-      // uncaught exception mid-run (a different, already-known/documented
-      // issue affecting a later stage — see the Promise.race timer note in
-      // CLAUDE.md — is a TRAILING crash after the report is fully written,
-      // which this 0/1 check still correctly accepts).
+      // uncaught exception mid-run (a DIFFERENT, separately-tracked,
+      // SDK-internal issue — see CLAUDE.md's grpc-retry.ts note — can still
+      // produce a TRAILING crash after the report is fully written, which
+      // this 0/1 check still correctly accepts; exit 1 is also the normal,
+      // by-design code for a report containing real FAILs, independent of
+      // any crash — see cli.ts's own `results.some(FAIL) ? 1 : 0` logic).
       expect([0, 1]).toContain(auditResult.code);
 
       expect(auditResult.stdout).toMatch(/STATIC: 5\/5 passed/);
       expect(auditResult.stdout).toMatch(/HTML report written to/);
+
+      // The actual regression test for the fixed cancellation gap: a check
+      // hanging on a query to a workflow that never started (OrderWorkflow
+      // here) must no longer leave its worker registered for the next
+      // check sharing that task queue to collide with.
+      expect(auditResult.stdout).not.toMatch(/overlapping worker task types/);
+
+      // Every hung-query check now fails fast and cleanly instead of
+      // riding out the full per-check timeout to ERRORED — this run should
+      // report zero errored checks.
+      expect(auditResult.stdout).toMatch(/, 0 errored/);
 
       // Every one of the 49 catalog checks appears somewhere in the
       // report — nothing silently dropped.
