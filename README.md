@@ -16,20 +16,11 @@ automatically (via its `prepare` script), so you don't need to build it
 yourself:
 
 ```bash
-npm install --save-dev git+<your-internal-git-host>/temporal-test-kit.git
+npm install --save-dev git+https://github.com/NikhilRaju9010/temporal-test-kit.git
 ```
 
-For example, if this repo ends up hosted on GitHub under an org:
-```bash
-npm install --save-dev git+https://github.com/<your-org>/temporal-test-kit.git
-```
-or on an internal GitLab over SSH:
-```bash
-npm install --save-dev git+ssh://git@gitlab.internal.example.com/<group>/temporal-test-kit.git
-```
-
-**Before this package has a real git remote at all** (e.g. while it's still
-only a local clone), you can point directly at a local path the exact same
+**Without a real git remote at all** (e.g. working from a local clone before
+it's pushed anywhere), you can point directly at a local path the exact same
 way:
 ```bash
 npm install --save-dev git+file:///absolute/path/to/temporal-test-kit
