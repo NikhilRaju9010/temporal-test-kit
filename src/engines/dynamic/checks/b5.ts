@@ -1,8 +1,8 @@
-import { join } from "node:path";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { fixturePath } from "../fixture-path.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B5")!;
 
@@ -15,7 +15,7 @@ const POLL_INTERVAL_MS = 250;
 
 // A private, always-cancellable control fixture — see the long comment in
 // checkB5CancellationStops for why this exists and when it's used.
-const CONTROL_FIXTURE_PATH = join(import.meta.dirname, "fixtures", "b5-hanging-workflow.ts");
+const CONTROL_FIXTURE_PATH = fixturePath(import.meta.url, import.meta.dirname, "b5-hanging-workflow");
 const CONTROL_WORKFLOW_TYPE = "GreetingWorkflow";
 
 interface CancellationOutcome {
