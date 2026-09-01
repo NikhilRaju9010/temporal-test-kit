@@ -1,7 +1,7 @@
 {
   "project": "sample-project",
   "workerEntryPoint": "./src/worker.ts",
-  "taskQueues": ["default", "saga", "interactive", "parent"],
+  "taskQueues": ["default", "saga", "interactive", "parent", "counter"],
   "workflows": [
     { "type": "GreetingWorkflow", "taskQueue": "default" },
     {
@@ -27,6 +27,14 @@
       "taskQueue": "parent",
       "sampleInput": { "childTaskId": "TEST-CHILD-TASK-001", "parentClosePolicy": "TERMINATE" },
       "hasChildWorkflows": true
+    },
+    {
+      "type": "CounterWorkflow",
+      "taskQueue": "counter",
+      "sampleInput": { "count": 0 },
+      "isLongRunning": true,
+      "signals": [{ "name": "incrementSignal", "payload": null }],
+      "queries": [{ "name": "getCountQuery" }]
     }
   ],
   "features": {

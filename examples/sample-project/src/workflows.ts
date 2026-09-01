@@ -5,6 +5,7 @@ import {
   defineUpdate,
   setHandler,
   condition,
+  continueAsNew,
   CancelledFailure,
   CancellationScope,
   startChild,
@@ -314,4 +315,71 @@ export async function ParentWorkflow(input: ParentWorkflowInput): Promise<string
       "TTK_CHILD_WORKFLOW_FAILED",
     );
   }
+}
+
+// --- CounterWorkflow: fixture for E2 (state survives continue-as-new) ---
+//
+// A deliberately minimal accumulator: `incrementSignal` bumps `count` by 1,
+// `getCountQuery` reads it back, and once `INCREMENTS_PER_CYCLE` (3)
+// increments have landed in the CURRENT run, the workflow calls
+// `continueAsNew()` carrying its own `{ count, cycle }` forward as the next
+// run's starting input. `count` is never reset to 0 across that call — it's
+// read from `input.count` at the top of every run, same as any other
+// argument — which is exactly the property E2 exists to verify from
+// outside: a project that instead called `continueAsNew({ count: 0, cycle:
+// cycle + 1 })`, or `continueAsNew()` with no args at all (falling back to
+// some default), would silently lose every increment applied so far. That
+// bug is real and easy to make — continueAsNew() takes whatever arguments
+// you hand it, same as starting a workflow fresh, so nothing forces the
+// accumulated state to be included.
+//
+// `cycle` (also carried forward, not recomputed) bounds this workflow to a
+// FIXED number of resets — `MAX_CYCLES` (2) — so it terminates rather than
+// continuing-as-new forever: cycle 0 and cycle 1 each collect 3 increments
+// and reset, cycle 2 collects its 3 increments and returns the final count
+// instead of resetting again. Total: 3 continue-as-new-worthy increments ×
+// 3 runs = 9, so a caller that starts at count 0 and drives it to
+// completion should see a final result of 9 — anything else means state was
+// dropped or duplicated somewhere along the way.
+//
+// `incrementsThisRun` is intentionally NOT carried forward — it's a
+// per-run-local counter re-declared fresh at the top of every execution
+// (including post-reset runs), which is the correct, idiomatic Temporal
+// pattern: a continue-as-new run starts its workflow function from the top
+// like any other execution, so only whatever is explicitly threaded through
+// the continueAsNew() call itself (here, `count` and `cycle`) survives the
+// reset.
+export interface CounterWorkflowInput {
+  count: number;
+  cycle?: number;
+}
+
+const INCREMENTS_PER_CYCLE = 3;
+const MAX_CYCLES = 2;
+
+export const incrementSignal = defineSignal("incrementSignal");
+export const getCountQuery = defineQuery<number>("getCountQuery");
+
+export async function CounterWorkflow(input: CounterWorkflowInput): Promise<number> {
+  let count = input.count;
+  const cycle = input.cycle ?? 0;
+  let incrementsThisRun = 0;
+
+  setHandler(incrementSignal, () => {
+    count += 1;
+    incrementsThisRun += 1;
+  });
+
+  setHandler(getCountQuery, () => count);
+
+  await condition(() => incrementsThisRun >= INCREMENTS_PER_CYCLE);
+
+  if (cycle >= MAX_CYCLES) {
+    return count;
+  }
+
+  await continueAsNew<typeof CounterWorkflow>({ count, cycle: cycle + 1 });
+  // continueAsNew() never returns (Promise<never>) — control never reaches
+  // here — but TS still needs a return path for the async function's type.
+  throw new Error("unreachable: continueAsNew should have thrown/replaced the workflow task");
 }
