@@ -3,8 +3,18 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C2")!;
+
+// Bounded wait for each query call, well under the orchestrator's 15s
+// per-check ceiling (see CLAUDE.md's "Per-check timeout and error
+// isolation"). Newly added here — this check previously called
+// handle.query() with no bound at all, the actual unbounded wait behind the
+// reproduced "Registration of multiple workers with overlapping worker task
+// types" collision (a query against a workflow that never started hangs
+// forever with nothing racing it).
+const QUERY_TIMEOUT_MS = 5_000;
 
 /**
  * C2 starts the workflow and calls the first configured `workflows[].queries[]`
@@ -43,8 +53,12 @@ export const checkC2Queries: DynamicFixtureCheckFn = async (env, target) => {
       });
 
       try {
-        const first = await handle.query(queryName);
-        const second = await handle.query(queryName);
+        const first = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
+          throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+        });
+        const second = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
+          throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+        });
 
         if (JSON.stringify(first) !== JSON.stringify(second)) {
           return {

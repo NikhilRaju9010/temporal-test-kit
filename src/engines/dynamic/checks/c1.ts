@@ -3,6 +3,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C1")!;
 const QUERY_WAIT_MS = 5_000;
@@ -55,12 +56,9 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target) => {
 
       try {
         const beforeState = queryName
-          ? await Promise.race([
-              handle.query(queryName),
-              new Promise((_, reject) =>
-                setTimeout(() => reject(new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`)), QUERY_WAIT_MS),
-              ),
-            ])
+          ? await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
+              throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+            })
           : null;
 
         for (const sig of signals) {
@@ -86,7 +84,9 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target) => {
           };
         }
 
-        const afterState = await handle.query(queryName);
+        const afterState = await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
+          throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+        });
 
         if (JSON.stringify(afterState) === JSON.stringify(beforeState)) {
           return {

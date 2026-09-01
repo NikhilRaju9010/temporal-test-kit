@@ -3,6 +3,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C5")!;
 const RESPONSE_WAIT_MS = 8_000;
@@ -63,10 +64,11 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
           burst.push(handle.executeUpdate(upd.name, { args: [upd.validInput] }).catch(() => {}));
         }
 
-        const burstOutcome = await Promise.race([
+        const burstOutcome = await raceWithTimeout(
           Promise.allSettled(burst).then(() => "settled" as const),
-          new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), RESPONSE_WAIT_MS)),
-        ]);
+          RESPONSE_WAIT_MS,
+          () => "timeout" as const,
+        );
 
         if (burstOutcome === "timeout") {
           return {
@@ -81,10 +83,11 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
         }
 
         if (queryName) {
-          const queryOutcome = await Promise.race([
+          const queryOutcome = await raceWithTimeout(
             handle.query(queryName).then(() => "ok" as const),
-            new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), RESPONSE_WAIT_MS)),
-          ]);
+            RESPONSE_WAIT_MS,
+            () => "timeout" as const,
+          );
 
           if (queryOutcome === "timeout") {
             return {

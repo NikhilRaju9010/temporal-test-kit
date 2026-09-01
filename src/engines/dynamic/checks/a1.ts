@@ -2,6 +2,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "A1")!;
 
@@ -48,7 +49,7 @@ export async function checkA1WorkflowStarts(
 
     let resultValue: unknown;
     let resultCaptured = false;
-    await Promise.race([
+    await raceWithTimeout(
       handle
         .result()
         .then((r) => {
@@ -58,8 +59,9 @@ export async function checkA1WorkflowStarts(
         .catch(() => {
           // Failure is reflected in describe().status below; nothing to do here.
         }),
-      new Promise((resolve) => setTimeout(resolve, WAIT_TIMEOUT_MS)),
-    ]);
+      WAIT_TIMEOUT_MS,
+      () => undefined,
+    );
 
     const description = await handle.describe();
     const statusName = description.status.name;
@@ -74,7 +76,7 @@ export async function checkA1WorkflowStarts(
       // connection eventually tears down. Termination is what lets the
       // pending long-poll resolve (as terminated) instead of hanging.
       await handle.terminate("temporal-test-kit A1 check: bounded wait expired").catch(() => {});
-      await Promise.race([handle.result().catch(() => {}), new Promise((resolve) => setTimeout(resolve, 3_000))]);
+      await raceWithTimeout(handle.result().catch(() => {}), 3_000, () => undefined);
     }
 
     if (statusName === "COMPLETED") {

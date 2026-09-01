@@ -4,6 +4,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, createTimeSkippingEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "D1")!;
 
@@ -127,15 +128,9 @@ export async function probeTimerSurvivesRestart(
     secondRunPromise.catch(() => {});
 
     try {
-      const result = await Promise.race([
-        handle.result(),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`)),
-            RESULT_WAIT_MS,
-          ),
-        ),
-      ]);
+      const result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
+        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      });
       return { result: result as string };
     } catch (e) {
       return { error: e as Error };

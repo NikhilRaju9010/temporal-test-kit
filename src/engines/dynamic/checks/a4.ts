@@ -3,6 +3,7 @@ import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "A4")!;
 
@@ -58,10 +59,7 @@ export async function checkA4DataIntegrity(
     // Not strictly necessary — WorkflowExecutionStarted is written at start
     // — but bounded so this check doesn't leave the workflow running against
     // the ephemeral server any longer than it has to.
-    await Promise.race([
-      handle.result().catch(() => {}),
-      new Promise((resolve) => setTimeout(resolve, WAIT_TIMEOUT_MS)),
-    ]);
+    await raceWithTimeout(handle.result().catch(() => {}), WAIT_TIMEOUT_MS, () => undefined);
 
     const history = await handle.fetchHistory();
     const startedEvent = history.events?.find((e) => e.workflowExecutionStartedEventAttributes != null);

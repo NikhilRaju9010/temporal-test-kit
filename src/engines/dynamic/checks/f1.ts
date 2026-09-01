@@ -6,6 +6,7 @@ import { withRunningWorker } from "../environment.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId, HistoryEvent } from "../child-workflow-events.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "F1")!;
 const DISCOVERY_POLL_INTERVAL_MS = 200;
@@ -146,10 +147,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
           workflowId,
           args,
         });
-        await Promise.race([
-          handle.result().catch(() => {}),
-          new Promise((resolve) => setTimeout(resolve, RESULT_WAIT_MS)),
-        ]);
+        await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
         return handle.fetchHistory();
       },
     );

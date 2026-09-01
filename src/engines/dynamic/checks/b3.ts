@@ -6,6 +6,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
+import { raceWithTimeout } from "../race.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B3")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -99,10 +100,7 @@ export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target) => 
         workflowId,
         args,
       });
-      await Promise.race([
-        handle.result().catch(() => {}),
-        new Promise((resolve) => setTimeout(resolve, RESULT_WAIT_MS)),
-      ]);
+      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
       return handle.fetchHistory();
     });
     events = history.events ?? [];
