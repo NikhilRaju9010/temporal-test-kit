@@ -17,8 +17,21 @@ export function raceWithTimeout<T>(
   onTimeout: () => T | PromiseLike<T>,
 ): Promise<T> {
   let timer: ReturnType<typeof setTimeout>;
-  const timeout = new Promise<T>((resolve) => {
-    timer = setTimeout(() => resolve(onTimeout()), ms);
+  const timeout = new Promise<T>((resolve, reject) => {
+    timer = setTimeout(() => {
+      // onTimeout() is allowed to throw synchronously (the "reject on
+      // timeout" usage — see c1.ts/d1.ts/i1.ts/e2.ts) as well as resolve. A
+      // throw here happens inside a setTimeout callback, which is NOT
+      // connected to this Promise executor's try/catch — left uncaught, it
+      // would surface as an unhandled exception while this timeout promise
+      // itself hangs forever unresolved, defeating the entire point of a
+      // bounded wait. Must be caught and turned into a real rejection.
+      try {
+        resolve(onTimeout());
+      } catch (e) {
+        reject(e);
+      }
+    }, ms);
   });
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }

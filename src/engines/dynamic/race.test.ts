@@ -40,4 +40,19 @@ describe("raceWithTimeout", () => {
     setTimeoutSpy.mockRestore();
     clearTimeoutSpy.mockRestore();
   });
+
+  it("rejects (rather than hanging forever) when onTimeout itself throws synchronously — the 'reject on timeout' usage", async () => {
+    vi.useFakeTimers();
+    try {
+      const real = new Promise<string>(() => {}); // never resolves
+      const promise = raceWithTimeout(real, 1_000, () => {
+        throw new Error("did not resolve in time");
+      });
+      const assertion = expect(promise).rejects.toThrow("did not resolve in time");
+      await vi.advanceTimersByTimeAsync(1_000);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
