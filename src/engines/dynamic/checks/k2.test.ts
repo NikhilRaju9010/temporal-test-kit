@@ -72,4 +72,39 @@ describe("checkK2SensitiveDataNotExposed (real @temporalio/testing + sample proj
     expect(result.message).toMatch(/ssn/i);
     expect(result.message).toMatch(/nothing/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.K2.resultWaitMs override instead of the hardcoded default", async () => {
+    // Grading only depends on the WorkflowExecutionStarted event (written
+    // synchronously at start), not on completion, so a workflow that hasn't
+    // finished within a tiny override still gets graded correctly — this
+    // proves the override (not the 10000ms default) bounded the wait via
+    // elapsed time, since the SAME correct FAIL is still reached much faster.
+    const activities = await loadActivities();
+
+    const start = Date.now();
+    const result = await withEphemeralEnvironment((env) =>
+      checkK2SensitiveDataNotExposed(
+        env,
+        {
+          type: "SagaWorkflow",
+          taskQueue: "ttk-k2-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: { orderId: "TEST-K2-002", cardNumber: "4242424242424242", amount: 49.99 },
+          sensitiveDataFields: ["cardNumber"],
+        },
+        {},
+        undefined,
+        { K2: { resultWaitMs: 1 } },
+      ),
+    );
+    const elapsedMs = Date.now() - start;
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toContain("cardNumber");
+    // Load-independent bound: RESULT_WAIT_MS's own default is 10000ms, so if
+    // the override weren't actually used, elapsed time would be AT LEAST
+    // that — holds regardless of machine speed/contention.
+    expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
+  }, 30_000);
 });

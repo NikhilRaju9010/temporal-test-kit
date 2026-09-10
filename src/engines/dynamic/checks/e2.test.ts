@@ -93,4 +93,34 @@ describe("checkE2ContinueAsNewStatePreserved (real @temporalio/testing + sample 
     expect(result.status).toBe("FAIL");
     expect(result.message).toMatch(/continue-as-new|reset/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.E2.queryWaitMs override instead of the hardcoded default", async () => {
+    // The baseline query (before any signals are sent) is a real round-trip
+    // that takes more than 1ms, so this deterministically hits the "did not
+    // resolve within Nms" branch — proving the override (not the 5000ms
+    // default) bounded the wait.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkE2ContinueAsNewStatePreserved(
+        env,
+        {
+          type: "CounterWorkflow",
+          taskQueue: "ttk-e2-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: { count: 0 },
+          isLongRunning: true,
+          signals: [{ name: "incrementSignal", payload: null }],
+          queries: [{ name: "getCountQuery" }],
+        },
+        {},
+        undefined,
+        { E2: { queryWaitMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });

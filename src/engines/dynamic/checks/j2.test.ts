@@ -114,4 +114,27 @@ describe("checkJ2SearchAttributes (real @temporalio/testing + sample project's G
 
     expect(result.status).toBe("PASS");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.J2.describeWaitMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkJ2SearchAttributes(
+        env,
+        {
+          type: "GreetingWorkflow",
+          taskQueue: "ttk-j2-test-override",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: "TTK",
+        },
+        { customSearchAttributeKeys: ["TTK_OrderStatus"] },
+        undefined,
+        { J2: { describeWaitMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });

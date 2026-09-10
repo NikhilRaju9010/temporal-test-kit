@@ -5,6 +5,7 @@ import { checkJ1EventHistory } from "./j1.js";
 
 const SAMPLE_PROJECT = join(import.meta.dirname, "..", "..", "..", "..", "examples", "sample-project");
 const WORKFLOWS_PATH = join(SAMPLE_PROJECT, "src", "workflows.ts");
+const HANGING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "j1-hanging-workflow.ts");
 
 async function loadActivities() {
   return import(join(SAMPLE_PROJECT, "src", "activities.ts"));
@@ -29,5 +30,26 @@ describe("checkJ1EventHistory (real @temporalio/testing + sample project)", () =
     expect(result.target).toBe("GreetingWorkflow");
     expect(result.hint).toBeNull();
     expect(result.message).toMatch(/WorkflowExecutionCompleted/);
+  }, 30_000);
+
+  it("honors a waitBudgetsMs.J1.waitTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkJ1EventHistory(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: HANGING_WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { J1: { waitTimeoutMs: 500 } },
+      ),
+    );
+
+    expect(result.status).toBe("PASS");
+    expect(result.message).toMatch(/500ms/);
   }, 30_000);
 });

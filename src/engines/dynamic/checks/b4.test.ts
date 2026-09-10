@@ -115,4 +115,45 @@ describe("checkB4Heartbeats (real @temporalio/testing + sample project)", () => 
     },
     30_000,
   );
+
+  it(
+    "honors a waitBudgetsMs.B4.runTimeoutMs override instead of the hardcoded default",
+    async () => {
+      // Uses recordActivityExecutions directly against
+      // b4SleepWithHeartbeatActivity, which genuinely sleeps for 3 real
+      // seconds. Timing alone can't prove this: withRunningWorker's
+      // graceful shutdown waits for whatever activity is already in flight
+      // regardless of the race's own outcome, so total elapsed time stays
+      // dominated by the activity's real duration either way. What DOES
+      // prove the override was honored is the recorded OUTCOME: a 500ms
+      // override means fetchHistory() runs long before the activity's real
+      // ActivityTaskCompleted event exists (3s away), recording STARTED
+      // with no measured duration — not the default's accurately-measured
+      // COMPLETED the sibling test above gets with the full 10000ms budget.
+      const b4Activities = await loadB4Activities();
+
+      const recorded = await withEphemeralEnvironment((env) =>
+        recordActivityExecutions(
+          env,
+          {
+            workflowType: "B4WorkflowWithHeartbeat",
+            taskQueue: "default",
+            workflowsPath: LONG_WORKFLOWS_PATH,
+            activities: b4Activities,
+          },
+          undefined,
+          500,
+        ),
+      );
+
+      const activity = recorded.activities.find((a) => a.activityType === "b4SleepWithHeartbeatActivity");
+      expect(activity).toBeDefined();
+      // UNSTARTED (scheduled, not yet dispatched) or STARTED (dispatched,
+      // not yet complete) are both valid evidence the override cut recording
+      // short — either way, definitively not the default's COMPLETED.
+      expect(["UNSTARTED", "STARTED"]).toContain(activity!.outcome);
+      expect(activity!.durationMs).toBeNull();
+    },
+    30_000,
+  );
 });

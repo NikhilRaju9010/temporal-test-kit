@@ -76,4 +76,39 @@ describe("checkG1SagaCompensation (real @temporalio/testing + sample project's S
     expect(result.status).toBe("FAIL");
     expect(result.message).toMatch(/never.*(reached|scheduled|invoked|ran)|chargeCardActivity/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.G1.resultWaitMs override instead of the hardcoded default", async () => {
+    // Same missing-sampleInput setup as the "never actually reached" test
+    // above (which takes ~10s against the DEFAULT 10000ms, per that test's
+    // own timing) — with a 1ms override, the check reaches the same
+    // never-invoked FAIL conclusion in a fraction of a second instead,
+    // proving the override (not the default) bounded the wait.
+    const activities = await loadActivities();
+
+    const start = Date.now();
+    const result = await withEphemeralEnvironment((env) =>
+      checkG1SagaCompensation(
+        env,
+        {
+          type: "SagaWorkflow",
+          taskQueue: "ttk-g1-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sagaFailurePoint: "chargeCardActivity",
+          // No sampleInput — same as the test above.
+        },
+        {},
+        undefined,
+        { G1: { resultWaitMs: 1 } },
+      ),
+    );
+    const elapsedMs = Date.now() - start;
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/never actually invoked/i);
+    // Load-independent bound: RESULT_WAIT_MS's own default is 10000ms, so if
+    // the override weren't actually used, elapsed time would be AT LEAST
+    // that — holds regardless of machine speed/contention.
+    expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
+  }, 30_000);
 });

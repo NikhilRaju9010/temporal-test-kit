@@ -23,4 +23,27 @@ describe("checkI5StickyRecovery (real @temporalio/worker + @temporalio/testing)"
     },
     30_000,
   );
+
+  it(
+    "honors a waitBudgetsMs.I5.resultWaitMs override instead of the hardcoded default",
+    async () => {
+      const result = await withEphemeralEnvironment((env) =>
+        checkI5StickyRecovery(
+          env,
+          {
+            workflowType: "irrelevant-not-used-by-this-check",
+            taskQueue: "irrelevant-not-used-by-this-check",
+            workflowsPath: join(import.meta.dirname, "fixtures", "i5-two-task-workflow.ts"),
+            activities: {},
+          },
+          undefined,
+          { I5: { resultWaitMs: 10 } },
+        ),
+      );
+
+      expect(result.status).toBe("FAIL");
+      expect(result.message).toMatch(/10ms/);
+    },
+    30_000,
+  );
 });

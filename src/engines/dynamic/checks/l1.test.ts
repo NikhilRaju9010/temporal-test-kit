@@ -37,4 +37,25 @@ describe("checkL1ConnectionLossRecovery (real @temporalio/testing, narrow connec
     expect(result.message).toMatch(/not.*(server outage|server.*down)/i);
     expect(result.hint).toBeNull();
   }, 30_000);
+
+  it("honors a waitBudgetsMs.L1.resultWaitMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkL1ConnectionLossRecovery(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { L1: { resultWaitMs: 10 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/10ms/);
+  }, 30_000);
 });

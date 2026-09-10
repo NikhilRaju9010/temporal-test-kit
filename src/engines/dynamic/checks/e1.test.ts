@@ -23,4 +23,26 @@ describe("checkE1ContinueAsNew (real @temporalio/testing, no mocking)", () => {
     expect(result.hint).toBeNull();
     expect(result.message).toMatch(/continue-as-new/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.E1.resultWaitMs override instead of the hardcoded default", async () => {
+    // The probe workflow needs real time to continue-as-new and complete, so
+    // a tiny override deterministically hits the "did not complete" FAIL
+    // branch, whose message embeds the exact wait value that was used.
+    const result = await withEphemeralEnvironment((env) =>
+      checkE1ContinueAsNew(
+        env,
+        {
+          workflowType: "SomeTargetWorkflow",
+          taskQueue: "irrelevant",
+          workflowsPath: "irrelevant",
+          activities: {},
+        },
+        undefined,
+        { E1: { resultWaitMs: 10 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/10ms/);
+  }, 30_000);
 });

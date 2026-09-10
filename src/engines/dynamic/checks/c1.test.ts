@@ -74,4 +74,33 @@ describe("checkC1Signals (real @temporalio/testing + sample project's Interactiv
 
     expect(result.status).toBe("FAIL");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.C1.queryWaitMs override instead of the hardcoded default", async () => {
+    // A real query round-trip over the socket takes more than 1ms, so this
+    // deterministically hits the "did not resolve within Nms" branch even
+    // though getStateQuery is a real, working handler — proving the
+    // override (not the 5000ms default) bounded the wait.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkC1Signals(
+        env,
+        {
+          type: "InteractiveWorkflow",
+          taskQueue: "ttk-c1-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: "TTK",
+          signals: [{ name: "pingSignal", payload: "hello-from-c1" }],
+          queries: [{ name: "getStateQuery" }],
+        },
+        {},
+        undefined,
+        { C1: { queryWaitMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });

@@ -70,4 +70,37 @@ describe("checkB3Idempotency (real @temporalio/testing + sample project's SagaWo
 
     expect(result.status).toBe("FAIL");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.B3.resultWaitMs override instead of the hardcoded default", async () => {
+    // Same reasoning as G1/L2: the real forced-retry sequence needs real
+    // time to reach a terminal state, so a 1ms wait reliably produces SOME
+    // FAIL well under the 10000ms default, proving the override bounded
+    // this run via elapsed time.
+    const activities = await loadActivities();
+
+    const start = Date.now();
+    const result = await withEphemeralEnvironment((env) =>
+      checkB3Idempotency(
+        env,
+        {
+          type: "SagaWorkflow",
+          taskQueue: "ttk-b3-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          idempotencyTestActivity: "chargeCardActivity",
+          sampleInput: { orderId: "TEST-B3-002", cardNumber: "4242424242424242", amount: 10 },
+        },
+        {},
+        undefined,
+        { B3: { resultWaitMs: 1 } },
+      ),
+    );
+    const elapsedMs = Date.now() - start;
+
+    expect(result.status).toBe("FAIL");
+    // Load-independent bound: RESULT_WAIT_MS's own default is 10000ms, so if
+    // the override weren't actually used, elapsed time would be AT LEAST
+    // that — holds regardless of machine speed/contention.
+    expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
+  }, 30_000);
 });

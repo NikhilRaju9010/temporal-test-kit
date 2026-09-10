@@ -11,6 +11,7 @@ const DESCRIPTIVE_FAILURE_WORKFLOWS_PATH = join(
   "fixtures",
   "j3-descriptive-failure-workflow.ts",
 );
+const HANGING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "j3-hanging-workflow.ts");
 
 async function loadActivities() {
   return import(join(SAMPLE_PROJECT, "src", "activities.ts"));
@@ -72,5 +73,26 @@ describe("checkJ3FailureMessages (real @temporalio/testing + sample project)", (
     expect(result.target).toBe("GreetingWorkflow");
     expect(result.hint).toBeNull();
     expect(result.message).toMatch(/initialName is required/);
+  }, 30_000);
+
+  it("honors a waitBudgetsMs.J3.waitTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkJ3FailureMessages(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: HANGING_WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { J3: { waitTimeoutMs: 500 } },
+      ),
+    );
+
+    expect(result.status).toBe("SKIPPED");
+    expect(result.message).toMatch(/500ms/);
   }, 30_000);
 });

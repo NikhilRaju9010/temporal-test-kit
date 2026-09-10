@@ -86,4 +86,35 @@ describe("checkH2TerminateSkipsCleanup (real @temporalio/testing + sample projec
     expect(outcome.terminated).toBe(false);
     expect(outcome.lastStatus).toBe("RUNNING");
   });
+
+  it("accepts a waitBudgetsMs.H2.graceMs override and still passes against a live probe", async () => {
+    // Same real-server limitation the test above already documents:
+    // terminate() applies essentially synchronously, so graceMs's actual
+    // VALUE can't be behaviorally distinguished against a live handle no
+    // matter how small — describe() already reports TERMINATED on its
+    // first poll regardless. What this test can and does verify is that
+    // checkH2TerminateSkipsCleanup's own resolution
+    // (waitBudgets?.H2?.graceMs ?? DEFAULT_GRACE_MS) is correctly wired
+    // through to terminateAndAwaitTerminated without breaking the normal
+    // PASS path — the override-VALUE-level proof lives in
+    // terminateAndAwaitTerminated's own stand-in-handle test above, which
+    // already covers the exact arithmetic this check forwards into.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkH2TerminateSkipsCleanup(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { H2: { graceMs: 60_000 } },
+      ),
+    );
+
+    expect(result.status).toBe("PASS");
+  }, 30_000);
 });

@@ -76,4 +76,30 @@ describe("checkF1FailingChildHandled (real @temporalio/testing + sample project'
     expect(result.status).toBe("FAIL");
     expect(result.message).toMatch(/never.*(scheduled|invoked|ran)/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.F1.discoveryTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkF1FailingChildHandled(
+        env,
+        {
+          type: "ParentWorkflow",
+          taskQueue: "ttk-f1-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+          // No sampleInput, same setup as the "never scheduled" test above —
+          // just with a tiny discovery override to prove which value bounded
+          // the wait, via the exact ms figure embedded in the FAIL message.
+        },
+        { childWorkflows: true },
+        undefined,
+        { F1: { discoveryTimeoutMs: 50 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/50ms/);
+  }, 30_000);
 });

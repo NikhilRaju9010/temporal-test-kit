@@ -69,4 +69,31 @@ describe("checkF2ChildNotOrphaned (real @temporalio/testing + sample project's P
     expect(result.message).toMatch(/ABANDON/);
     expect(result.message).toMatch(/correct, intended behavior/);
   }, 60_000);
+
+  it("honors a waitBudgetsMs.F2.childStartTimeoutMs override instead of the hardcoded default", async () => {
+    // No sampleInput means ParentWorkflow never gets far enough to start a
+    // child at all, so this deterministically hits the "never actually
+    // started a child workflow within Nms" FAIL branch — proving the
+    // override (not the 6000ms default) bounded the wait.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkF2ChildNotOrphaned(
+        env,
+        {
+          type: "ParentWorkflow",
+          taskQueue: "ttk-f2-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+        },
+        { childWorkflows: true },
+        undefined,
+        { F2: { childStartTimeoutMs: 50 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/50ms/);
+  }, 30_000);
 });

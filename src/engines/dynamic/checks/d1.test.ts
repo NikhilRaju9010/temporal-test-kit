@@ -53,6 +53,27 @@ describe("checkD1Timers (real @temporalio/testing, no mocking)", () => {
   }, 60_000);
 });
 
+describe("checkD1Timers waitBudgetsMs override", () => {
+  it("honors a waitBudgetsMs.D1.resultWaitMs override instead of the hardcoded default", async () => {
+    // A tiny override can't possibly be enough time for the real two-worker
+    // restart dance to finish, so this deterministically hits the FAIL
+    // branch — whose message embeds the exact wait value that was used,
+    // proving the override (not the 10s default) was what got passed down
+    // into probeTimerSurvivesRestart.
+    const result = await withEphemeralEnvironment((env) =>
+      checkD1Timers(
+        env,
+        { workflowType: "unused", taskQueue: "unused", workflowsPath: "unused", activities: {} },
+        undefined,
+        { D1: { resultWaitMs: 10 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/10ms/);
+  }, 30_000);
+});
+
 describe("probeTimerSurvivesRestart teardown safety (real @temporalio/testing, no mocking)", () => {
   it("throwing partway through (bad workflowsPath) still leaves the caller's environment cleanly tearable down", async () => {
     const env = await createTimeSkippingEnvironment();

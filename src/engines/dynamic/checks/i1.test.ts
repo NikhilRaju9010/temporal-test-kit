@@ -32,4 +32,29 @@ describe("checkI1WorkerCrashRecovery (real @temporalio/testing + a real killed O
     expect(result.hint).toBeNull();
     expect(result.message).toMatch(/exactly once/i);
   }, 45_000);
+
+  it("honors a waitBudgetsMs.I1.markerWaitTimeoutMs override instead of the hardcoded default", async () => {
+    // Spawning a real OS process and having it record its own "started"
+    // marker file takes real seconds — a 1ms wait can't possibly be enough,
+    // so this deterministically hits the "could not get the probe activity
+    // running" FAIL branch, whose message embeds the exact wait value used.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkI1WorkerCrashRecovery(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { I1: { markerWaitTimeoutMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 45_000);
 });

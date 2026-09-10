@@ -70,4 +70,25 @@ describe("checkA1WorkflowStarts (real @temporalio/testing + sample project)", ()
     expect(result.hint).toMatch(/signal|quer(y|ies)|running/i);
     expect(result.message).toMatch(/running/i);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.A1.waitTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkA1WorkflowStarts(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: HANGING_WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { A1: { waitTimeoutMs: 500 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/500ms/);
+  }, 30_000);
 });

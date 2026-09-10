@@ -47,4 +47,34 @@ describe("checkC5NoStuckOnSignalUpdate (real @temporalio/testing + sample projec
     expect(result.id).toBe("C5");
     expect(result.hint).toBeNull();
   }, 30_000);
+
+  it("honors a waitBudgetsMs.C5.responseWaitMs override instead of the hardcoded default", async () => {
+    // A real burst of signal/update client calls takes more than 1ms to
+    // settle, so this deterministically hits the "did not finish
+    // processing...within Nms" FAIL branch — proving the override (not the
+    // 8000ms default) bounded the wait.
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkC5NoStuckOnSignalUpdate(
+        env,
+        {
+          type: "InteractiveWorkflow",
+          taskQueue: "ttk-c5-test-2",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: "TTK",
+          signals: [{ name: "pingSignal", payload: "rapid-ping" }],
+          queries: [{ name: "getStateQuery" }],
+          updates: [{ name: "changeStateUpdate", validInput: "NewName", invalidInput: "" }],
+        },
+        { updates: true },
+        undefined,
+        { C5: { responseWaitMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });

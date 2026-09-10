@@ -73,4 +73,33 @@ describe("checkB5CancellationStops (real @temporalio/testing, no mocked Temporal
     expect(result.id).toBe("B5");
     expect(result.target).toBe("GreetingWorkflow");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.B5.gracePeriodMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const start = Date.now();
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(
+        env,
+        {
+          workflowType: "GreetingWorkflow",
+          taskQueue: "default",
+          workflowsPath: SWALLOWING_WORKFLOWS_PATH,
+          activities,
+        },
+        undefined,
+        { B5: { gracePeriodMs: 300 } },
+      ),
+    );
+    const elapsedMs = Date.now() - start;
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/300ms/);
+    // Bound: GRACE_PERIOD_MS's own default is 5000ms (doubled, even, since
+    // this check can race the wait twice in its fallback path), plus
+    // worker-boot/env overhead — under full-suite load that overhead alone
+    // was observed reaching ~5s, so 5000ms flaked; 8000ms keeps real margin
+    // below what "default + overhead" would need.
+    expect(elapsedMs).toBeLessThan(8000);
+  }, 30_000);
 });

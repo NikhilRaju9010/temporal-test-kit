@@ -66,4 +66,28 @@ describe("checkC2Queries (real @temporalio/testing + sample project's Interactiv
 
     expect(result.status).toBe("FAIL");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.C2.queryTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkC2Queries(
+        env,
+        {
+          type: "InteractiveWorkflow",
+          taskQueue: "ttk-c2-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: "TTK",
+          queries: [{ name: "getStateQuery" }],
+        },
+        {},
+        undefined,
+        { C2: { queryTimeoutMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });

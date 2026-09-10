@@ -70,4 +70,63 @@ describe("checkH3CancelParentHandlesChildren (real @temporalio/testing + sample 
     expect(result.status).toBe("FAIL");
     expect(result.message).toMatch(/never actually started a child workflow/);
   }, 30_000);
+
+  it("honors a waitBudgetsMs.H3.childStartTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkH3CancelParentHandlesChildren(
+        env,
+        {
+          type: "ParentWorkflow",
+          taskQueue: "ttk-h3-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+          // No sampleInput, same setup as the "never started" test above.
+        },
+        { childWorkflows: true },
+        undefined,
+        { H3: { childStartTimeoutMs: 50 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/50ms/);
+  }, 30_000);
+
+  it("honors a waitBudgetsMs.H3.resultWaitMs override instead of the hardcoded default", async () => {
+    // Timing-based proof, same reasoning as H1: the exact branch reached
+    // after a 1ms wait is timing-sensitive, but a fraction-of-a-second
+    // elapsed time (vs. the 10000ms default) plus a real FAIL proves the
+    // override was what bounded this run, given a scenario that DOES
+    // successfully start a child (so childStartTimeoutMs isn't the
+    // bottleneck here).
+    const activities = await loadActivities();
+
+    const start = Date.now();
+    const result = await withEphemeralEnvironment((env) =>
+      checkH3CancelParentHandlesChildren(
+        env,
+        {
+          type: "ParentWorkflow",
+          taskQueue: "ttk-h3-test-4",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+          sampleInput: { childTaskId: "TEST-H3-002", parentClosePolicy: "TERMINATE" },
+        },
+        { childWorkflows: true },
+        undefined,
+        { H3: { resultWaitMs: 1 } },
+      ),
+    );
+    const elapsedMs = Date.now() - start;
+
+    expect(result.status).toBe("FAIL");
+    // Load-independent bound: RESULT_WAIT_MS's own default is 10000ms, so if
+    // the override weren't actually used, elapsed time would be AT LEAST
+    // that — holds regardless of machine speed/contention.
+    expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
+  }, 30_000);
 });

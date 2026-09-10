@@ -72,4 +72,29 @@ describe("checkC3UpdateValidation (real @temporalio/testing + sample project's I
 
     expect(result.status).toBe("FAIL");
   }, 30_000);
+
+  it("honors a waitBudgetsMs.C3.queryTimeoutMs override instead of the hardcoded default", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkC3UpdateValidation(
+        env,
+        {
+          type: "InteractiveWorkflow",
+          taskQueue: "ttk-c3-test-3",
+          workflowsPath: WORKFLOWS_PATH,
+          activities,
+          sampleInput: "TTK",
+          queries: [{ name: "getStateQuery" }],
+          updates: [{ name: "changeStateUpdate", validInput: "NewName", invalidInput: "" }],
+        },
+        { updates: true },
+        undefined,
+        { C3: { queryTimeoutMs: 1 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/1ms/);
+  }, 30_000);
 });
