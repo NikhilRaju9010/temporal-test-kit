@@ -257,6 +257,61 @@ engine (`project`, `workerEntryPoint`, `taskQueues`, `workflows[].type`,
 don't add those fields to the schema early; extend it when Phase 3 actually
 starts consuming them.
 
+## Configurable per-check wait budgets (`waitBudgetsMs`)
+
+28 of the dynamic checks hardcode an internal "how long do we wait before
+giving up" constant (terminal-state waits, query/result waits, cancellation
+grace periods, child-workflow-start discovery, etc.) — a real pilot run hit
+several of these on a slower environment. `src/config/schema.ts`'s
+`WaitBudgetsConfig` makes each one independently overridable via
+`temporal-test-kit.config.json`'s `waitBudgetsMs`, keyed by catalog ID, with
+every field's default being that check's own pre-existing hardcoded value —
+an empty/omitted `waitBudgetsMs` is behavior-identical to before this
+existed (verified via a before/after full-suite diff: 0 differences across
+247 pre-existing tests).
+
+Deliberately per-check, not global or category-grouped: several of these
+constants share a numeric value today (e.g. several unrelated checks use
+5000ms) purely by coincidence, not shared meaning — grouping them under one
+knob would mean fixing one flaky check silently changes unrelated ones, with
+no way to un-couple them later. Poll intervals, and `d2.ts`/`d3.ts`/`d4.ts`'s
+Schedule-cadence-derived waits, are deliberately NOT included — see
+`src/config/schema.ts`'s `WaitBudgetsConfig` doc comment and the plan at
+`docs/superpowers/plans/2026-09-10-configurable-wait-budgets.md` for the
+full reasoning and file-by-file list.
+
+**`waitBudgets` is always appended as the trailing-most parameter** on both
+`ZeroFixtureCheckFn` and `DynamicFixtureCheckFn` — never inserted before an
+existing `signal` param. Discovered the hard way: inserting it earlier
+silently retypes every existing arrow-typed check's `signal` parameter via
+TypeScript's contextual inference, including checks with no wait budget at
+all (`c4.ts` broke this way, caught only by running `tsc --noEmit`
+project-wide immediately after the type change, before any check file was
+touched). Any check with no existing `signal` param declares an explicit
+`_signal?: AbortSignal,` placeholder before its own `waitBudgets` param, for
+the same reason — skipping straight to `waitBudgets` would silently bind it
+to whatever value is actually passed in the `signal` call position instead.
+
+`b4.ts` and `h2.ts` are the two exceptions where the wait constant is
+consumed by a separately-exported helper function
+(`recordActivityExecutions`, `terminateAndAwaitTerminated`) rather than the
+check itself — the override is resolved in the check function and passed
+down as an explicit argument, while the helper's own default parameter stays
+in place unchanged (both helpers are exported standalone specifically so
+tests can drive them directly with a custom value). A handful of other files
+(`b5.ts`, `i3.ts`, `i4.ts`, `j1.ts`) have a second exported helper sharing
+the *exact same* `signal?: AbortSignal,` signature text as the actual check
+— a one-time mechanical codemod script used during this feature's rollout
+matched the wrong occurrence in each until caught by manual diff review
+(the script's own error handling didn't catch this failure class), and
+`d1.ts` separately had a resolution variable that was declared but silently
+never consumed, since `RESULT_WAIT_MS`'s real usage lives in
+`probeTimerSurvivesRestart` (defined earlier in the file), not in
+`checkD1Timers`'s own body. Both are worth remembering if this pattern ever
+needs extending to a new check: grep for how many functions in the target
+file actually reference the constant before assuming a single top-level
+insertion point is enough.
+
 ## Worker lifecycle gotcha — always boot workers through `bootWorker`
 
 `Worker.create()` does **not** fully release its hold on the connection it
