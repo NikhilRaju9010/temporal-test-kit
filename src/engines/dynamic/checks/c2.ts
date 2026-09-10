@@ -4,6 +4,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C2")!;
 
@@ -27,7 +28,8 @@ const QUERY_TIMEOUT_MS = 5_000;
  * calls (e.g. an accidentally-exposed counter that increments every time
  * it's read), which the SDK's mutation guard does nothing to prevent.
  */
-export const checkC2Queries: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkC2Queries: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const queryTimeoutMs = waitBudgets?.C2?.queryTimeoutMs ?? QUERY_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -53,11 +55,11 @@ export const checkC2Queries: DynamicFixtureCheckFn = async (env, target, _featur
       });
 
       try {
-        const first = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
-          throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+        const first = await raceWithTimeout(handle.query(queryName), queryTimeoutMs, () => {
+          throw new Error(`query ${queryName} did not resolve within ${queryTimeoutMs}ms`);
         });
-        const second = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
-          throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+        const second = await raceWithTimeout(handle.query(queryName), queryTimeoutMs, () => {
+          throw new Error(`query ${queryName} did not resolve within ${queryTimeoutMs}ms`);
         });
 
         if (JSON.stringify(first) !== JSON.stringify(second)) {

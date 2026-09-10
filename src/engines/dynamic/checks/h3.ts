@@ -5,6 +5,7 @@ import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId } from "../child-workflow-events.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H3")!;
 const CHILD_START_TIMEOUT_MS = 6_000;
@@ -51,7 +52,9 @@ const RESULT_WAIT_MS = 10_000;
  * (the CancelRequested event actually reaching it) is what this check can
  * honestly claim to verify generically.
  */
-export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.H3?.resultWaitMs ?? RESULT_WAIT_MS;
+  const childStartTimeoutMs = waitBudgets?.H3?.childStartTimeoutMs ?? CHILD_START_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -76,7 +79,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
       });
 
       let childWorkflowId: string | undefined;
-      const discoverDeadline = Date.now() + CHILD_START_TIMEOUT_MS;
+      const discoverDeadline = Date.now() + childStartTimeoutMs;
       while (Date.now() < discoverDeadline && !childWorkflowId) {
         const history = await handle.fetchHistory();
         childWorkflowId = findChildWorkflowId(history.events ?? []);
@@ -90,7 +93,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
         return {
           ...base,
           status: "FAIL" as const,
-          message: `${target.type} never actually started a child workflow within ${CHILD_START_TIMEOUT_MS}ms — this run can't tell you anything about cancellation propagation until it does.`,
+          message: `${target.type} never actually started a child workflow within ${childStartTimeoutMs}ms — this run can't tell you anything about cancellation propagation until it does.`,
           hint:
             "This points at a setup problem (starting the child), not at cancellation-handling behavior. Confirm " +
             `workflows[].sampleInput gives ${target.type} what it needs to reach its startChild()/executeChild() ` +
@@ -118,7 +121,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
 
       await handle.cancel();
 
-      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
 
       const parentHistory = await handle.fetchHistory();
       const parentEvents = parentHistory.events ?? [];
@@ -140,7 +143,7 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
         return {
           ...base,
           status: "FAIL" as const,
-          message: `${target.type} did not reach a terminal state within ${RESULT_WAIT_MS}ms after being cancelled.`,
+          message: `${target.type} did not reach a terminal state within ${resultWaitMs}ms after being cancelled.`,
           hint:
             "A cancelled workflow should reach a clean terminal state once cancellation (and any child-workflow " +
             "propagation) resolves — a parent that hangs instead suggests cancellation handling around the child " +

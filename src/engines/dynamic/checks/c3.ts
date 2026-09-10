@@ -4,6 +4,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C3")!;
 
@@ -30,7 +31,8 @@ const QUERY_TIMEOUT_MS = 5_000;
  * state DOES change, so a validator that rejects EVERYTHING (never truly
  * gating anything through) can't pass by accident.
  */
-export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const queryTimeoutMs = waitBudgets?.C3?.queryTimeoutMs ?? QUERY_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -58,8 +60,8 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
 
       try {
         const beforeInvalid = queryName
-          ? await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
-              throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+          ? await raceWithTimeout(handle.query(queryName), queryTimeoutMs, () => {
+              throw new Error(`query ${queryName} did not resolve within ${queryTimeoutMs}ms`);
             })
           : null;
 
@@ -84,8 +86,8 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
         }
 
         if (queryName) {
-          const afterInvalid = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
-            throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+          const afterInvalid = await raceWithTimeout(handle.query(queryName), queryTimeoutMs, () => {
+            throw new Error(`query ${queryName} did not resolve within ${queryTimeoutMs}ms`);
           });
           if (JSON.stringify(beforeInvalid) !== JSON.stringify(afterInvalid)) {
             return {
@@ -123,8 +125,8 @@ export const checkC3UpdateValidation: DynamicFixtureCheckFn = async (env, target
         }
 
         if (queryName) {
-          const afterValid = await raceWithTimeout(handle.query(queryName), QUERY_TIMEOUT_MS, () => {
-            throw new Error(`query ${queryName} did not resolve within ${QUERY_TIMEOUT_MS}ms`);
+          const afterValid = await raceWithTimeout(handle.query(queryName), queryTimeoutMs, () => {
+            throw new Error(`query ${queryName} did not resolve within ${queryTimeoutMs}ms`);
           });
           if (JSON.stringify(beforeInvalid) === JSON.stringify(afterValid)) {
             return {

@@ -5,6 +5,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "K2")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -144,7 +145,8 @@ interface FieldSearch {
  * event history, as recorded by whatever data converter this project's
  * client is actually configured with.
  */
-export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.K2?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -178,7 +180,7 @@ export const checkK2SensitiveDataNotExposed: DynamicFixtureCheckFn = async (env,
       });
       await raceWithTimeout(
         handle.result().catch(() => undefined),
-        RESULT_WAIT_MS,
+        resultWaitMs,
         () => undefined,
       );
       const history = await handle.fetchHistory();

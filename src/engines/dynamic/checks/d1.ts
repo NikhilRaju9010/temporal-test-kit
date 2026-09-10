@@ -1,6 +1,7 @@
 import { Worker } from "@temporalio/worker";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, createTimeSkippingEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -76,6 +77,7 @@ export async function probeTimerSurvivesRestart(
   env: EphemeralEnvironment,
   workflowsPath: string,
   taskQueue: string,
+  resultWaitMs: number = RESULT_WAIT_MS,
 ): Promise<TimerRestartProbeResult> {
   const workflowId = generateWorkflowId("D1", "D1TimerWorkflow");
 
@@ -128,8 +130,8 @@ export async function probeTimerSurvivesRestart(
     secondRunPromise.catch(() => {});
 
     try {
-      const result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
-        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      const result = await raceWithTimeout(handle.result(), resultWaitMs, () => {
+        throw new Error(`workflow did not complete within ${resultWaitMs}ms`);
       });
       return { result: result as string };
     } catch (e) {
@@ -153,7 +155,10 @@ export async function probeTimerSurvivesRestart(
 export async function checkD1Timers(
   _env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
+  _signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const resultWaitMs = waitBudgets?.D1?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -171,7 +176,7 @@ export async function checkD1Timers(
   const privateEnv = await createTimeSkippingEnvironment();
 
   try {
-    const probe = await probeTimerSurvivesRestart(privateEnv, WORKFLOWS_PATH, TASK_QUEUE);
+    const probe = await probeTimerSurvivesRestart(privateEnv, WORKFLOWS_PATH, TASK_QUEUE, resultWaitMs);
 
     if (probe.error) {
       return {

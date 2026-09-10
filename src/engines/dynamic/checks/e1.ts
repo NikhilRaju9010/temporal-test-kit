@@ -1,5 +1,6 @@
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -39,7 +40,9 @@ export async function checkE1ContinueAsNew(
   env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const resultWaitMs = waitBudgets?.E1?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -73,8 +76,8 @@ export async function checkE1ContinueAsNew(
     let result: string | undefined;
     let error: Error | undefined;
     try {
-      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
-        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      result = await raceWithTimeout(handle.result(), resultWaitMs, () => {
+        throw new Error(`workflow did not complete within ${resultWaitMs}ms`);
       });
     } catch (e) {
       error = e as Error;

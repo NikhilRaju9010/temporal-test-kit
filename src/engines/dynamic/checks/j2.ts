@@ -5,6 +5,7 @@ import { DynamicFixtureCheckFn } from "../fixture-check.js";
 import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "J2")!;
 const IndexedValueType = proto.temporal.api.enums.v1.IndexedValueType;
@@ -44,7 +45,8 @@ const DESCRIBE_WAIT_MS = 5_000;
  * This check sets the values itself via the client; it never observes the
  * target project doing so. The PASS message says this explicitly.
  */
-export const checkJ2SearchAttributes: DynamicFixtureCheckFn = async (env, target, features) => {
+export const checkJ2SearchAttributes: DynamicFixtureCheckFn = async (env, target, features, _signal, waitBudgets) => {
+  const describeWaitMs = waitBudgets?.J2?.describeWaitMs ?? DESCRIBE_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -109,8 +111,8 @@ export const checkJ2SearchAttributes: DynamicFixtureCheckFn = async (env, target
       typedSearchAttributes,
     });
 
-    const description = await raceWithTimeout(handle.describe(), DESCRIBE_WAIT_MS, () => {
-      throw new Error(`describe() did not resolve within ${DESCRIBE_WAIT_MS}ms`);
+    const description = await raceWithTimeout(handle.describe(), describeWaitMs, () => {
+      throw new Error(`describe() did not resolve within ${describeWaitMs}ms`);
     });
 
     const mismatches: string[] = [];

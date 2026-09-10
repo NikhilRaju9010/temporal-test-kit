@@ -1,6 +1,7 @@
 import { NativeConnection, Worker } from "@temporalio/worker";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { registerCleanup } from "../cleanup-registry.js";
@@ -52,7 +53,10 @@ const TARGET_LABEL = "L1TwoTaskWorkflow (internal probe — connection-loss only
 export async function checkL1ConnectionLossRecovery(
   _env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
+  _signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const resultWaitMs = waitBudgets?.L1?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -124,8 +128,8 @@ export async function checkL1ConnectionLossRecovery(
     let error: Error | undefined;
     try {
       await handle.signal(l1ContinueSignal);
-      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
-        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      result = await raceWithTimeout(handle.result(), resultWaitMs, () => {
+        throw new Error(`workflow did not complete within ${resultWaitMs}ms`);
       });
     } catch (e) {
       error = e as Error;

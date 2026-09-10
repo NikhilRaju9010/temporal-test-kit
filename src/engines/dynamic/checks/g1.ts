@@ -6,6 +6,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "G1")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -34,7 +35,8 @@ const INJECTED_FAILURE_MESSAGE = "temporal-test-kit G1: forced failure to test s
  * reports what happens after the failure point only as informational
  * context in the PASS message, never as a pass/fail signal.
  */
-export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.G1?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -66,7 +68,7 @@ export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target
           workflowId,
           args,
         });
-        await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+        await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
         return handle.fetchHistory();
       },
       signal,
@@ -114,7 +116,7 @@ export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target
     return {
       ...base,
       status: "FAIL",
-      message: `${target.type} did not reach a terminal state within ${RESULT_WAIT_MS}ms after ${failurePoint} was forced to fail.`,
+      message: `${target.type} did not reach a terminal state within ${resultWaitMs}ms after ${failurePoint} was forced to fail.`,
       hint:
         "A mid-saga failure should produce a clean, prompt terminal outcome (typically FAILED) — a workflow " +
         "that hangs instead of resolving means a mid-process failure can leave the workflow stuck rather than " +

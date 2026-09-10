@@ -7,6 +7,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "L2")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -80,7 +81,8 @@ const RECOVER_AT_ATTEMPT = 3;
  * tolerated (same scope-honesty treatment as L1's connection-loss-only
  * claim and B3's "doesn't prove dedup" claim).
  */
-export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.L2?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -122,7 +124,7 @@ export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env
         workflowId,
         args,
       });
-      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
       return handle.fetchHistory();
     }, signal);
     events = history.events ?? [];
@@ -184,7 +186,7 @@ export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env
     return {
       ...base,
       status: "FAIL",
-      message: `${target.type} did not reach a terminal state within ${RESULT_WAIT_MS}ms after ${activityName} was forced through a simulated outage.`,
+      message: `${target.type} did not reach a terminal state within ${resultWaitMs}ms after ${activityName} was forced through a simulated outage.`,
       hint:
         "A temporary dependency outage that eventually recovers should produce a clean, prompt terminal outcome " +
         "— a workflow that hangs instead of resolving means an activity's transient failures can leave the " +

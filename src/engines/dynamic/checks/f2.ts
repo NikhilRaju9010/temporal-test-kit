@@ -4,6 +4,7 @@ import { missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { findChildWorkflowId } from "../child-workflow-events.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "F2")!;
 const CHILD_START_TIMEOUT_MS = 6_000;
@@ -51,7 +52,9 @@ const POLICY_SETTLE_POLL_INTERVAL_MS = 300;
  * would be exactly the false-flag mistake G1's own doc comment warns
  * against (flagging correct, policy-intended behavior as a bug).
  */
-export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const policySettleTimeoutMs = waitBudgets?.F2?.policySettleTimeoutMs ?? POLICY_SETTLE_TIMEOUT_MS;
+  const childStartTimeoutMs = waitBudgets?.F2?.childStartTimeoutMs ?? CHILD_START_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -85,7 +88,7 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
       });
 
       let childWorkflowId: string | undefined;
-      const discoverDeadline = Date.now() + CHILD_START_TIMEOUT_MS;
+      const discoverDeadline = Date.now() + childStartTimeoutMs;
       while (Date.now() < discoverDeadline && !childWorkflowId) {
         const history = await handle.fetchHistory();
         childWorkflowId = findChildWorkflowId(history.events ?? []);
@@ -99,7 +102,7 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
         return {
           ...base,
           status: "FAIL" as const,
-          message: `${target.type} never actually started a child workflow within ${CHILD_START_TIMEOUT_MS}ms — this run can't tell you anything about ParentClosePolicy until it does.`,
+          message: `${target.type} never actually started a child workflow within ${childStartTimeoutMs}ms — this run can't tell you anything about ParentClosePolicy until it does.`,
           hint:
             "This points at a setup problem (starting the child), not at orphaning behavior. Confirm " +
             `workflows[].sampleInput gives ${target.type} what it needs to reach its startChild()/executeChild() ` +
@@ -128,7 +131,7 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
       await handle.terminate(`temporal-test-kit F2 check: terminating parent to exercise ParentClosePolicy=${policy}`);
 
       let childStatusAfter = "RUNNING";
-      const settleDeadline = Date.now() + POLICY_SETTLE_TIMEOUT_MS;
+      const settleDeadline = Date.now() + policySettleTimeoutMs;
       while (Date.now() < settleDeadline) {
         childStatusAfter = await childHandle.describe().then(
           (d) => d.status.name,
@@ -168,7 +171,7 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
         return {
           ...base,
           status: "FAIL" as const,
-          message: `This check exercised ParentClosePolicy=${policy} (${policySource}): terminated the parent while its child (${childWorkflowId}) was genuinely RUNNING, and after waiting ${POLICY_SETTLE_TIMEOUT_MS}ms the child was STILL RUNNING — it was orphaned instead of being ${policy === "TERMINATE" ? "terminated" : "cancelled"} along with its parent.`,
+          message: `This check exercised ParentClosePolicy=${policy} (${policySource}): terminated the parent while its child (${childWorkflowId}) was genuinely RUNNING, and after waiting ${policySettleTimeoutMs}ms the child was STILL RUNNING — it was orphaned instead of being ${policy === "TERMINATE" ? "terminated" : "cancelled"} along with its parent.`,
           hint:
             `A child left running with no parent to ever collect its result is exactly the orphaning this check ` +
             `exists to catch. Confirm the child was actually started with parentClosePolicy: "${policy}" passed ` +

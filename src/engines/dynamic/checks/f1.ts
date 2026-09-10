@@ -7,6 +7,7 @@ import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId, HistoryEvent } from "../child-workflow-events.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "F1")!;
 const DISCOVERY_POLL_INTERVAL_MS = 200;
@@ -49,7 +50,9 @@ const INJECTED_FAILURE_MESSAGE = "temporal-test-kit F1: forced failure to test f
  *      to know what a correct reaction beyond "don't swallow it" looks
  *      like for an arbitrary project.
  */
-export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.F1?.resultWaitMs ?? RESULT_WAIT_MS;
+  const discoveryTimeoutMs = waitBudgets?.F1?.discoveryTimeoutMs ?? DISCOVERY_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -75,7 +78,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
       });
 
       try {
-        const parentDeadline = Date.now() + DISCOVERY_TIMEOUT_MS;
+        const parentDeadline = Date.now() + discoveryTimeoutMs;
         let childWorkflowId: string | undefined;
         while (Date.now() < parentDeadline && !childWorkflowId) {
           const parentHistory = await handle.fetchHistory();
@@ -87,7 +90,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
         if (!childWorkflowId) return undefined;
 
         const childHandle = env.client.workflow.getHandle(childWorkflowId);
-        const childDeadline = Date.now() + DISCOVERY_TIMEOUT_MS;
+        const childDeadline = Date.now() + discoveryTimeoutMs;
         while (Date.now() < childDeadline) {
           const childHistory = await childHandle.fetchHistory().catch(() => undefined);
           const scheduled = (childHistory?.events ?? []).find(
@@ -121,7 +124,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
       ...base,
       status: "FAIL",
       message:
-        `${target.type}'s child workflow never scheduled any activity within ${DISCOVERY_TIMEOUT_MS}ms in a ` +
+        `${target.type}'s child workflow never scheduled any activity within ${discoveryTimeoutMs}ms in a ` +
         "normal run — this check has no activity to fault-inject, so it can't tell you anything about " +
         "failing-child-workflow handling.",
       hint:
@@ -147,7 +150,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
           workflowId,
           args,
         });
-        await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+        await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
         return handle.fetchHistory();
       },
       signal,
@@ -175,7 +178,7 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
     return {
       ...base,
       status: "FAIL",
-      message: `${target.type} did not reach a terminal state within ${RESULT_WAIT_MS}ms after its child's ${discoveredActivityName} was forced to fail.`,
+      message: `${target.type} did not reach a terminal state within ${resultWaitMs}ms after its child's ${discoveredActivityName} was forced to fail.`,
       hint:
         "A child workflow failing should produce a clean, prompt terminal outcome on the parent (typically " +
         "FAILED) — a parent that hangs instead of resolving means a failing child can leave the parent stuck " +

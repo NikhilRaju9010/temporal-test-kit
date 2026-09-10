@@ -3,6 +3,7 @@ import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { fixturePath } from "../fixture-path.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B5")!;
 
@@ -46,6 +47,7 @@ async function startAndCancel(
   workflowsPath: string,
   testId: string,
   signal?: AbortSignal,
+  graceMs: number = GRACE_PERIOD_MS,
 ): Promise<CancellationOutcome> {
   const workerTarget: WorkerTarget = { workflowsPath, activities, taskQueue };
 
@@ -69,7 +71,7 @@ async function startAndCancel(
       cancelError = (e as Error).message;
     }
 
-    const deadline = Date.now() + GRACE_PERIOD_MS;
+    const deadline = Date.now() + graceMs;
     let finalStatus = "UNKNOWN";
     while (Date.now() < deadline) {
       const description = await handle.describe();
@@ -128,7 +130,9 @@ export async function checkB5CancellationStops(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const graceMs = waitBudgets?.B5?.gracePeriodMs ?? GRACE_PERIOD_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -145,13 +149,14 @@ export async function checkB5CancellationStops(
     target.workflowsPath,
     "B5",
     signal,
+    graceMs,
   );
 
   if (primary.finalStatus === "CANCELLED") {
     return {
       ...base,
       status: "PASS",
-      message: `${target.workflowType} was cancelled and reached CANCELLED within ${GRACE_PERIOD_MS}ms — cancellation took effect promptly.`,
+      message: `${target.workflowType} was cancelled and reached CANCELLED within ${graceMs}ms — cancellation took effect promptly.`,
       hint: null,
     };
   }
@@ -160,7 +165,7 @@ export async function checkB5CancellationStops(
     return {
       ...base,
       status: "FAIL",
-      message: `${target.workflowType} was still RUNNING ${GRACE_PERIOD_MS}ms after handle.cancel() was called — it did not honor the cancellation request.`,
+      message: `${target.workflowType} was still RUNNING ${graceMs}ms after handle.cancel() was called — it did not honor the cancellation request.`,
       hint:
         "A workflow that doesn't respond to cancellation within a reasonable time can leave orphaned executions " +
         "running indefinitely, wasting worker capacity and skipping any cleanup/compensation logic meant to run " +
@@ -181,6 +186,7 @@ export async function checkB5CancellationStops(
     CONTROL_FIXTURE_PATH,
     "B5-control",
     signal,
+    graceMs,
   );
 
   const raceNote =
@@ -205,7 +211,7 @@ export async function checkB5CancellationStops(
     status: "FAIL",
     message:
       `${raceNote} A control workflow run on the same worker/task queue also failed to reach CANCELLED within ` +
-      `${GRACE_PERIOD_MS}ms (ended in ${fallback.finalStatus}), which points at the cancellation path itself ` +
+      `${graceMs}ms (ended in ${fallback.finalStatus}), which points at the cancellation path itself ` +
       `rather than ${target.workflowType}'s own timing.`,
     hint:
       "A workflow that doesn't respond to cancellation within a reasonable time can leave orphaned executions " +

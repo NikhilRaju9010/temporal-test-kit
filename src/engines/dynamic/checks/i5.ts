@@ -1,6 +1,7 @@
 import { Worker } from "@temporalio/worker";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { i5ContinueSignal } from "./fixtures/i5-two-task-workflow.js";
@@ -52,7 +53,10 @@ const RESULT_WAIT_MS = 10_000;
 export async function checkI5StickyRecovery(
   _env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
+  _signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const resultWaitMs = waitBudgets?.I5?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -126,8 +130,8 @@ export async function checkI5StickyRecovery(
       // the new (second) worker is around to pick this up.
       await handle.signal(i5ContinueSignal);
 
-      result = await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
-        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      result = await raceWithTimeout(handle.result(), resultWaitMs, () => {
+        throw new Error(`workflow did not complete within ${resultWaitMs}ms`);
       });
     } catch (e) {
       error = e as Error;

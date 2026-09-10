@@ -4,6 +4,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C1")!;
 const QUERY_WAIT_MS = 5_000;
@@ -28,7 +29,8 @@ const QUERY_WAIT_MS = 5_000;
  * actually happened to the query result as informational context, not a
  * pass/fail bar by itself.
  */
-export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const queryWaitMs = waitBudgets?.C1?.queryWaitMs ?? QUERY_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -56,8 +58,8 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _featur
 
       try {
         const beforeState = queryName
-          ? await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
-              throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+          ? await raceWithTimeout(handle.query(queryName), queryWaitMs, () => {
+              throw new Error(`query ${queryName} did not resolve within ${queryWaitMs}ms`);
             })
           : null;
 
@@ -84,8 +86,8 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _featur
           };
         }
 
-        const afterState = await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
-          throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+        const afterState = await raceWithTimeout(handle.query(queryName), queryWaitMs, () => {
+          throw new Error(`query ${queryName} did not resolve within ${queryWaitMs}ms`);
         });
 
         if (JSON.stringify(afterState) === JSON.stringify(beforeState)) {

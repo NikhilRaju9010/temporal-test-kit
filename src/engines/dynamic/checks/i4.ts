@@ -3,6 +3,7 @@ import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I4")!;
 
@@ -25,6 +26,7 @@ export async function proveCorrectQueuePickup(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  correctQueueWaitMs: number = CORRECT_QUEUE_WAIT_MS,
 ): Promise<CorrectQueueProof> {
   const workflowId = generateWorkflowId("I4", target.workflowType);
 
@@ -38,7 +40,7 @@ export async function proveCorrectQueuePickup(
         args: [],
       });
 
-      await raceWithTimeout(handle.result().catch(() => {}), CORRECT_QUEUE_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), correctQueueWaitMs, () => undefined);
 
       const description = await handle.describe();
       return {
@@ -92,6 +94,7 @@ export async function checkI4TaskQueue(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -101,7 +104,7 @@ export async function checkI4TaskQueue(
     engine: "dynamic-zero-fixture" as const,
   };
 
-  const correct = await proveCorrectQueuePickup(env, target, signal);
+  const correct = await proveCorrectQueuePickup(env, target, signal, waitBudgets?.I4?.correctQueueWaitMs ?? CORRECT_QUEUE_WAIT_MS);
   const wrong = await proveWrongQueueNeverPicksUp(env, target);
 
   if (correct.onExpectedQueue && wrong.staysUnpickedUp) {

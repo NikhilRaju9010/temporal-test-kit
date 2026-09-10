@@ -5,6 +5,7 @@ import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "I3")!;
 const RUN_TIMEOUT_MS = 10_000;
@@ -27,6 +28,7 @@ export async function recordWorkflowHistory(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  runTimeoutMs: number = RUN_TIMEOUT_MS,
 ): Promise<RecordedHistory> {
   const workflowId = generateWorkflowId("I3", target.workflowType);
 
@@ -37,7 +39,7 @@ export async function recordWorkflowHistory(
       args: [],
     });
 
-    await raceWithTimeout(handle.result().catch(() => {}), RUN_TIMEOUT_MS, () => undefined);
+    await raceWithTimeout(handle.result().catch(() => {}), runTimeoutMs, () => undefined);
 
     const history = await handle.fetchHistory();
     return { history, workflowId };
@@ -67,6 +69,7 @@ export async function checkI3Replay(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -78,7 +81,7 @@ export async function checkI3Replay(
 
   let recorded: RecordedHistory;
   try {
-    recorded = await recordWorkflowHistory(env, target, signal);
+    recorded = await recordWorkflowHistory(env, target, signal, waitBudgets?.I3?.runTimeoutMs ?? RUN_TIMEOUT_MS);
   } catch (e) {
     return {
       ...base,

@@ -4,6 +4,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C5")!;
 const RESPONSE_WAIT_MS = 8_000;
@@ -26,7 +27,8 @@ const RESPONSE_WAIT_MS = 8_000;
  * genuinely stuck workflow reports a real FAIL rather than silently
  * consuming the whole check timeout as an ERRORED.
  */
-export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, target, features, signal) => {
+export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, target, features, signal, waitBudgets) => {
+  const responseWaitMs = waitBudgets?.C5?.responseWaitMs ?? RESPONSE_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -66,7 +68,7 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
 
         const burstOutcome = await raceWithTimeout(
           Promise.allSettled(burst).then(() => "settled" as const),
-          RESPONSE_WAIT_MS,
+          responseWaitMs,
           () => "timeout" as const,
         );
 
@@ -74,7 +76,7 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
           return {
             ...base,
             status: "FAIL" as const,
-            message: `${target.type} did not finish processing a rapid burst of ${burst.length} signal/update calls within ${RESPONSE_WAIT_MS}ms.`,
+            message: `${target.type} did not finish processing a rapid burst of ${burst.length} signal/update calls within ${responseWaitMs}ms.`,
             hint:
               "A burst of near-simultaneous signals/updates shouldn't wedge the workflow task loop. This " +
               "usually points at a handler that never returns (an unresolved await inside a signal/update " +
@@ -85,7 +87,7 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
         if (queryName) {
           const queryOutcome = await raceWithTimeout(
             handle.query(queryName).then(() => "ok" as const),
-            RESPONSE_WAIT_MS,
+            responseWaitMs,
             () => "timeout" as const,
           );
 
@@ -95,7 +97,7 @@ export const checkC5NoStuckOnSignalUpdate: DynamicFixtureCheckFn = async (env, t
               status: "FAIL" as const,
               message: `${target.type} stopped responding to queries after a rapid burst of signal/update calls.`,
               hint:
-                `${queryName} did not resolve within ${RESPONSE_WAIT_MS}ms after the burst completed — the ` +
+                `${queryName} did not resolve within ${responseWaitMs}ms after the burst completed — the ` +
                 "workflow task loop appears to be stuck even though the burst calls themselves returned. Check " +
                 "for a handler that leaves an unresolved promise open, blocking subsequent workflow tasks.",
             };

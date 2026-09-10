@@ -1,5 +1,6 @@
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -30,7 +31,9 @@ export async function checkA1WorkflowStarts(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const waitTimeoutMs = waitBudgets?.A1?.waitTimeoutMs ?? WAIT_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -60,7 +63,7 @@ export async function checkA1WorkflowStarts(
         .catch(() => {
           // Failure is reflected in describe().status below; nothing to do here.
         }),
-      WAIT_TIMEOUT_MS,
+      waitTimeoutMs,
       () => undefined,
     );
 
@@ -108,7 +111,7 @@ export async function checkA1WorkflowStarts(
       return {
         ...base,
         status: "FAIL",
-        message: `${target.workflowType} was still RUNNING after waiting ${WAIT_TIMEOUT_MS}ms for it to reach a terminal state.`,
+        message: `${target.workflowType} was still RUNNING after waiting ${waitTimeoutMs}ms for it to reach a terminal state.`,
         hint:
           `Because this is a zero-fixture check, the workflow may legitimately be waiting on a signal or query ` +
           `that this run never sent — not necessarily a bug. But a workflow that's expected to complete quickly ` +

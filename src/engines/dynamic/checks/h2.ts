@@ -1,6 +1,7 @@
 import { WorkflowHandle } from "@temporalio/client";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { fixturePath } from "../fixture-path.js";
@@ -83,6 +84,7 @@ export async function checkH2TerminateSkipsCleanup(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -107,7 +109,8 @@ export async function checkH2TerminateSkipsCleanup(
       args: [],
     });
 
-    const outcome = await terminateAndAwaitTerminated(handle, "temporal-test-kit H2 check: verifying terminate() takes effect");
+    const graceMs = waitBudgets?.H2?.graceMs ?? DEFAULT_GRACE_MS;
+    const outcome = await terminateAndAwaitTerminated(handle, "temporal-test-kit H2 check: verifying terminate() takes effect", graceMs);
 
     if (outcome.terminateError !== null) {
       return {

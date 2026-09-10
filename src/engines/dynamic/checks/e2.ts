@@ -6,6 +6,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "E2")!;
 
@@ -96,7 +97,9 @@ const DISCOVERY_POLL_INTERVAL_MS = 150;
  * side of the reset. The PASS message says this explicitly, same honesty
  * standard as B3/G1/L1.
  */
-export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (env, target, _features, abortSignal) => {
+export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (env, target, _features, abortSignal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.E2?.resultWaitMs ?? RESULT_WAIT_MS;
+  const queryWaitMs = waitBudgets?.E2?.queryWaitMs ?? QUERY_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -129,8 +132,8 @@ export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (
       const firstRunHandle = env.client.workflow.getHandle(workflowId, firstExecutionRunId);
 
       const baselineState = queryName
-        ? await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
-            throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+        ? await raceWithTimeout(handle.query(queryName), queryWaitMs, () => {
+            throw new Error(`query ${queryName} did not resolve within ${queryWaitMs}ms`);
           })
         : null;
 
@@ -195,8 +198,8 @@ export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (
       }
 
       if (queryName) {
-        const postResetState = await raceWithTimeout(handle.query(queryName), QUERY_WAIT_MS, () => {
-          throw new Error(`query ${queryName} did not resolve within ${QUERY_WAIT_MS}ms`);
+        const postResetState = await raceWithTimeout(handle.query(queryName), queryWaitMs, () => {
+          throw new Error(`query ${queryName} did not resolve within ${queryWaitMs}ms`);
         });
         if (JSON.stringify(postResetState) === JSON.stringify(baselineState)) {
           return {
@@ -245,7 +248,7 @@ export const checkE2ContinueAsNewStatePreserved: DynamicFixtureCheckFn = async (
           .result()
           .then((r) => ({ done: true as const, result: r }))
           .catch((e) => ({ done: true as const, error: e as Error })),
-        RESULT_WAIT_MS,
+        resultWaitMs,
         () => ({ done: false as const }),
       );
       if (outcome.done) {

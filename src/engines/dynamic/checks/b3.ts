@@ -7,6 +7,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B3")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -57,7 +58,8 @@ const FORCED_RETRY_MESSAGE = "temporal-test-kit B3: forcing a retry after a succ
  * to any function the SDK invokes as an activity regardless of how it got
  * registered.
  */
-export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.B3?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -100,7 +102,7 @@ export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target, _fe
         workflowId,
         args,
       });
-      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
       return handle.fetchHistory();
     }, signal);
     events = history.events ?? [];

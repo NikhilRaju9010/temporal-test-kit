@@ -1,5 +1,6 @@
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -80,7 +81,9 @@ export async function checkJ3FailureMessages(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const waitTimeoutMs = waitBudgets?.J3?.waitTimeoutMs ?? WAIT_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -98,7 +101,7 @@ export async function checkJ3FailureMessages(
       args: [],
     });
 
-    await raceWithTimeout(handle.result().catch(() => {}), WAIT_TIMEOUT_MS, () => undefined);
+    await raceWithTimeout(handle.result().catch(() => {}), waitTimeoutMs, () => undefined);
 
     // Source of truth for the terminal state is `describe()`, not whether
     // the raced `result()` promise above happened to settle before the
@@ -126,7 +129,7 @@ export async function checkJ3FailureMessages(
         message:
           statusName === "COMPLETED"
             ? `${target.workflowType} started with no arguments and completed successfully — no failure was produced to grade.`
-            : `${target.workflowType} ended in status ${statusName} after waiting ${WAIT_TIMEOUT_MS}ms — no failure was produced to grade.`,
+            : `${target.workflowType} ended in status ${statusName} after waiting ${waitTimeoutMs}ms — no failure was produced to grade.`,
         hint: SKIPPED_HINT,
       };
     }

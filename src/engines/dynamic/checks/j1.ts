@@ -5,6 +5,7 @@ import { TestResult } from "../../../report/types.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "J1")!;
 
@@ -61,6 +62,7 @@ export async function recordWorkflowHistory(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitTimeoutMs: number = WAIT_TIMEOUT_MS,
 ): Promise<RecordedHistory> {
   const workflowId = generateWorkflowId("J1", target.workflowType);
 
@@ -81,7 +83,7 @@ export async function recordWorkflowHistory(
         .catch(() => {
           observedTerminal = true;
         }),
-      WAIT_TIMEOUT_MS,
+      waitTimeoutMs,
       () => undefined,
     );
 
@@ -148,7 +150,9 @@ export async function checkJ1EventHistory(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const waitTimeoutMs = waitBudgets?.J1?.waitTimeoutMs ?? WAIT_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -159,7 +163,7 @@ export async function checkJ1EventHistory(
 
   let recorded: RecordedHistory;
   try {
-    recorded = await recordWorkflowHistory(env, target, signal);
+    recorded = await recordWorkflowHistory(env, target, signal, waitTimeoutMs);
   } catch (e) {
     return {
       ...base,
@@ -205,7 +209,7 @@ export async function checkJ1EventHistory(
     ...base,
     status: "PASS",
     message:
-      `${target.workflowType} was still RUNNING after waiting ${WAIT_TIMEOUT_MS}ms — its history so far starts ` +
+      `${target.workflowType} was still RUNNING after waiting ${waitTimeoutMs}ms — its history so far starts ` +
       "correctly with WorkflowExecutionStarted and has no terminal event yet, which is expected for a workflow " +
       "that hasn't finished.",
     hint: null,

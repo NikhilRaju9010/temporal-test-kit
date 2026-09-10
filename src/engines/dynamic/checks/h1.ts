@@ -5,6 +5,7 @@ import { missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H1")!;
 const EventType = proto.temporal.api.enums.v1.EventType;
@@ -28,7 +29,8 @@ const RESULT_WAIT_MS = 10_000;
  * narrower, evidence-based bar (any post-cancellation activity, not a
  * specific named one) is stated explicitly in the PASS message.
  */
-export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, target, _features, signal) => {
+export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
+  const resultWaitMs = waitBudgets?.H1?.resultWaitMs ?? RESULT_WAIT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -53,7 +55,7 @@ export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, targe
       });
 
       await handle.cancel();
-      await raceWithTimeout(handle.result().catch(() => {}), RESULT_WAIT_MS, () => undefined);
+      await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
 
       const history = await handle.fetchHistory();
       const events = history.events ?? [];
@@ -87,7 +89,7 @@ export const checkH1CancelRunsCleanup: DynamicFixtureCheckFn = async (env, targe
           status: "FAIL" as const,
           message: terminalEvent
             ? `${target.type} was cancelled but reached ${EventType[terminalEvent.eventType!]} instead of WORKFLOW_EXECUTION_CANCELED.`
-            : `${target.type} did not reach a terminal state within ${RESULT_WAIT_MS}ms after being cancelled.`,
+            : `${target.type} did not reach a terminal state within ${resultWaitMs}ms after being cancelled.`,
           hint:
             "A cancelled workflow should reach a clean CANCELED terminal state once its cleanup work (if any) " +
             "finishes — reaching FAILED/COMPLETED/TERMINATED instead, or never resolving, suggests the " +

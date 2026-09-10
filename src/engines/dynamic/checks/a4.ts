@@ -1,6 +1,7 @@
 import { arrayFromPayloads, defaultPayloadConverter } from "@temporalio/common";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -39,7 +40,9 @@ export async function checkA4DataIntegrity(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const waitTimeoutMs = waitBudgets?.A4?.waitTimeoutMs ?? WAIT_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -60,7 +63,7 @@ export async function checkA4DataIntegrity(
     // Not strictly necessary — WorkflowExecutionStarted is written at start
     // — but bounded so this check doesn't leave the workflow running against
     // the ephemeral server any longer than it has to.
-    await raceWithTimeout(handle.result().catch(() => {}), WAIT_TIMEOUT_MS, () => undefined);
+    await raceWithTimeout(handle.result().catch(() => {}), waitTimeoutMs, () => undefined);
 
     const history = await handle.fetchHistory();
     const startedEvent = history.events?.find((e) => e.workflowExecutionStartedEventAttributes != null);

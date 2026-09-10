@@ -1,6 +1,7 @@
 import type { History } from "@temporalio/common/lib/proto-utils.js";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
@@ -173,6 +174,7 @@ export async function recordActivityExecutions(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  runTimeoutMs: number = RUN_TIMEOUT_MS,
 ): Promise<RecordedRun> {
   const workflowId = generateWorkflowId("B4", target.workflowType);
 
@@ -206,7 +208,7 @@ export async function recordActivityExecutions(
       }
     })();
 
-    await raceWithTimeout(handle.result().catch(() => {}), RUN_TIMEOUT_MS, () => undefined);
+    await raceWithTimeout(handle.result().catch(() => {}), runTimeoutMs, () => undefined);
     keepPolling = false;
     await pollLoop;
 
@@ -269,6 +271,7 @@ export async function checkB4Heartbeats(
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
   const base = {
     id: CATALOG_ENTRY.id,
@@ -280,7 +283,7 @@ export async function checkB4Heartbeats(
 
   let recorded: RecordedRun;
   try {
-    recorded = await recordActivityExecutions(env, target, signal);
+    recorded = await recordActivityExecutions(env, target, signal, waitBudgets?.B4?.runTimeoutMs ?? RUN_TIMEOUT_MS);
   } catch (e) {
     return {
       ...base,

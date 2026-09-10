@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { CATALOG } from "../../../catalog.js";
 import { TestResult } from "../../../report/types.js";
+import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, createEphemeralEnvironment } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { spawnKillableWorker } from "../child-worker.js";
@@ -55,7 +56,11 @@ const RESULT_WAIT_MS = 25_000;
 export async function checkI1WorkerCrashRecovery(
   _env: EphemeralEnvironment,
   _target: WorkerTarget & { workflowType: string },
+  _signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ): Promise<TestResult> {
+  const resultWaitMs = waitBudgets?.I1?.resultWaitMs ?? RESULT_WAIT_MS;
+  const markerWaitTimeoutMs = waitBudgets?.I1?.markerWaitTimeoutMs ?? MARKER_WAIT_TIMEOUT_MS;
   const base = {
     id: CATALOG_ENTRY.id,
     category: CATALOG_ENTRY.category,
@@ -94,7 +99,7 @@ export async function checkI1WorkerCrashRecovery(
         args: [recordPath, startedMarkerPath, ACTIVITY_DELAY_MS],
       });
 
-      await waitForFile(startedMarkerPath, MARKER_WAIT_TIMEOUT_MS);
+      await waitForFile(startedMarkerPath, markerWaitTimeoutMs);
     } catch (e) {
       await firstWorker.kill();
       return {
@@ -120,8 +125,8 @@ export async function checkI1WorkerCrashRecovery(
 
     let error: Error | undefined;
     try {
-      await raceWithTimeout(handle.result(), RESULT_WAIT_MS, () => {
-        throw new Error(`workflow did not complete within ${RESULT_WAIT_MS}ms`);
+      await raceWithTimeout(handle.result(), resultWaitMs, () => {
+        throw new Error(`workflow did not complete within ${resultWaitMs}ms`);
       });
     } catch (e) {
       error = e as Error;
