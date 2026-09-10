@@ -145,6 +145,48 @@ use that Temporal feature at all (those checks report `N_A`, not
 Run `temporal-test-kit audit --list` any time to see exactly which field
 unlocks which check for your current config, without running anything.
 
+### Overriding internal wait budgets (advanced)
+
+Every dynamic check that waits on live Temporal state — a workflow reaching
+a terminal state, a query or result resolving, a child workflow starting,
+cancellation/termination taking effect — has its own built-in default
+timeout, already tuned to run comfortably in a normal CI environment. These
+are almost never something you need to touch. If a slow environment needs
+more headroom for a *specific* check, override just that one under
+`waitBudgetsMs`, keyed by check ID:
+
+```jsonc
+"waitBudgetsMs": {
+  "A1": { "waitTimeoutMs": 12000 },
+  "F2": { "childStartTimeoutMs": 9000 }
+}
+```
+
+Leaving `waitBudgetsMs` empty or omitted entirely keeps every check's
+default behavior exactly as-is. There is deliberately no single global
+timeout knob — these values aren't a shared setting, they're independent
+budgets that happen to reuse similar numbers today; raising one must never
+silently raise an unrelated check's.
+
+| Check | Field(s) | Default(s) |
+|---|---|---|
+| A1, A4, J1, J3 | `waitTimeoutMs` | A1/J1/J3: 8000, A4: 5000 |
+| B3, D1, E1, G1, H1, I5, K2, L1, L2 | `resultWaitMs` | 10000 (E1: 15000) |
+| B4 | `runTimeoutMs` | 10000 |
+| B5 | `gracePeriodMs` | 5000 |
+| C1 | `queryWaitMs` | 5000 |
+| C2, C3 | `queryTimeoutMs` | 5000 |
+| C5 | `responseWaitMs` | 8000 |
+| E2 | `queryWaitMs`, `resultWaitMs` | 5000, 10000 |
+| F1 | `discoveryTimeoutMs`, `resultWaitMs` | 6000, 10000 |
+| F2 | `childStartTimeoutMs`, `policySettleTimeoutMs` | 6000, 8000 |
+| H2 | `graceMs` | 5000 |
+| H3 | `childStartTimeoutMs`, `resultWaitMs` | 6000, 10000 |
+| I1 | `markerWaitTimeoutMs`, `resultWaitMs` | 10000, 25000 |
+| I3 | `runTimeoutMs` | 10000 |
+| I4 | `correctQueueWaitMs` | 5000 |
+| J2 | `describeWaitMs` | 5000 |
+
 ### Avoiding common setup errors
 
 Most first-run problems come from one of these — checking them up front

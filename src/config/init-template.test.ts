@@ -80,4 +80,12 @@ describe("generateInitTemplate", () => {
   it("sets outputDir", () => {
     expect(parsed.outputDir).toBeTypeOf("string");
   });
+
+  it("mentions waitBudgetsMs so a new project can discover the override exists", () => {
+    expect(parsed).toHaveProperty("waitBudgetsMs");
+    const idx = template.indexOf('"waitBudgetsMs"');
+    expect(idx).toBeGreaterThan(-1);
+    const context = template.slice(Math.max(0, idx - 600), idx);
+    expect(context).toMatch(/wait budget|timeout|README/i);
+  });
 });

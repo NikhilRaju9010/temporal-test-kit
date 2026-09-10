@@ -156,6 +156,18 @@ export function generateInitTemplate(): string {
     "dataConverterModulePath": null
   },
 
+  // ---- OPTIONAL, advanced: override internal per-check wait budgets ----
+  // Every dynamic check that waits on Temporal state (a workflow reaching a
+  // terminal state, a query/result resolving, a child workflow starting,
+  // cancellation/termination taking effect, etc.) has its own built-in
+  // default timeout, already tuned to run comfortably in a normal CI
+  // environment. Leave this empty to keep every check's default behavior
+  // completely unchanged — these are OVERRIDES, not required configuration.
+  // See README's Configuration section for the full list of check IDs,
+  // field names, and current default values.
+  // Example: "waitBudgetsMs": { "A1": { "waitTimeoutMs": 12000 } }
+  "waitBudgetsMs": {},
+
   "outputDir": "./temporal-test-kit-report"
 }
 `;
