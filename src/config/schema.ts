@@ -69,12 +69,62 @@ export interface FeaturesConfig {
   dataConverterModulePath?: string | null;
 }
 
+/**
+ * Optional per-check overrides for the internal "how long do we wait before
+ * giving up" budgets each dynamic check uses. Every field's default is that
+ * check's own hardcoded value (see the check file itself) — leaving this
+ * whole block, or any individual check/field within it, unset produces
+ * IDENTICAL behavior to before this existed. Deliberately per-check rather
+ * than a shared/global timeout: same-valued constants across unrelated
+ * checks are coincidence, not a shared meaning, so raising one must never
+ * silently raise another. See
+ * docs/superpowers/plans/2026-09-10-configurable-wait-budgets.md for the
+ * full file-by-file audit this was built from, and CLAUDE.md's
+ * "Configurable per-check wait budgets" section for the design reasoning.
+ *
+ * Deliberately excludes: poll intervals (internal loop cadence, not a
+ * ceiling), d2/d3/d4's Schedule-cadence-derived waits (real test data, not
+ * an arbitrary budget), and b4's LONG_ACTIVITY_THRESHOLD_MS (a grading
+ * threshold, not a wait).
+ */
+export interface WaitBudgetsConfig {
+  A1?: { waitTimeoutMs?: number };
+  A4?: { waitTimeoutMs?: number };
+  B3?: { resultWaitMs?: number };
+  B4?: { runTimeoutMs?: number };
+  B5?: { gracePeriodMs?: number };
+  C1?: { queryWaitMs?: number };
+  C2?: { queryTimeoutMs?: number };
+  C3?: { queryTimeoutMs?: number };
+  C5?: { responseWaitMs?: number };
+  D1?: { resultWaitMs?: number };
+  E1?: { resultWaitMs?: number };
+  E2?: { queryWaitMs?: number; resultWaitMs?: number };
+  F1?: { discoveryTimeoutMs?: number; resultWaitMs?: number };
+  F2?: { childStartTimeoutMs?: number; policySettleTimeoutMs?: number };
+  G1?: { resultWaitMs?: number };
+  H1?: { resultWaitMs?: number };
+  H2?: { graceMs?: number };
+  H3?: { childStartTimeoutMs?: number; resultWaitMs?: number };
+  I1?: { markerWaitTimeoutMs?: number; resultWaitMs?: number };
+  I3?: { runTimeoutMs?: number };
+  I4?: { correctQueueWaitMs?: number };
+  I5?: { resultWaitMs?: number };
+  J1?: { waitTimeoutMs?: number };
+  J2?: { describeWaitMs?: number };
+  J3?: { waitTimeoutMs?: number };
+  K2?: { resultWaitMs?: number };
+  L1?: { resultWaitMs?: number };
+  L2?: { resultWaitMs?: number };
+}
+
 export interface TestKitConfig {
   project: string;
   workerEntryPoint: string;
   taskQueues: string[];
   workflows: WorkflowConfig[];
   features?: FeaturesConfig;
+  waitBudgetsMs?: WaitBudgetsConfig;
   outputDir?: string;
 }
 
@@ -224,6 +274,64 @@ function validateFeatures(features: unknown, errors: string[]): void {
   }
 }
 
+const WAIT_BUDGET_FIELDS: Record<string, string[]> = {
+  A1: ["waitTimeoutMs"],
+  A4: ["waitTimeoutMs"],
+  B3: ["resultWaitMs"],
+  B4: ["runTimeoutMs"],
+  B5: ["gracePeriodMs"],
+  C1: ["queryWaitMs"],
+  C2: ["queryTimeoutMs"],
+  C3: ["queryTimeoutMs"],
+  C5: ["responseWaitMs"],
+  D1: ["resultWaitMs"],
+  E1: ["resultWaitMs"],
+  E2: ["queryWaitMs", "resultWaitMs"],
+  F1: ["discoveryTimeoutMs", "resultWaitMs"],
+  F2: ["childStartTimeoutMs", "policySettleTimeoutMs"],
+  G1: ["resultWaitMs"],
+  H1: ["resultWaitMs"],
+  H2: ["graceMs"],
+  H3: ["childStartTimeoutMs", "resultWaitMs"],
+  I1: ["markerWaitTimeoutMs", "resultWaitMs"],
+  I3: ["runTimeoutMs"],
+  I4: ["correctQueueWaitMs"],
+  I5: ["resultWaitMs"],
+  J1: ["waitTimeoutMs"],
+  J2: ["describeWaitMs"],
+  J3: ["waitTimeoutMs"],
+  K2: ["resultWaitMs"],
+  L1: ["resultWaitMs"],
+  L2: ["resultWaitMs"],
+};
+
+function validateWaitBudgets(value: unknown, errors: string[]): void {
+  if (!isPlainObject(value)) {
+    errors.push("waitBudgetsMs must be an object");
+    return;
+  }
+  for (const [checkId, entry] of Object.entries(value)) {
+    const knownFields = WAIT_BUDGET_FIELDS[checkId];
+    if (!knownFields) {
+      errors.push(`waitBudgetsMs.${checkId} is not a recognized check ID with a configurable wait budget`);
+      continue;
+    }
+    if (!isPlainObject(entry)) {
+      errors.push(`waitBudgetsMs.${checkId} must be an object`);
+      continue;
+    }
+    for (const [field, fieldValue] of Object.entries(entry)) {
+      if (!knownFields.includes(field)) {
+        errors.push(`waitBudgetsMs.${checkId}.${field} is not a recognized wait-budget field for ${checkId}`);
+        continue;
+      }
+      if (typeof fieldValue !== "number" || !Number.isFinite(fieldValue) || fieldValue <= 0) {
+        errors.push(`waitBudgetsMs.${checkId}.${field} must be a positive number`);
+      }
+    }
+  }
+}
+
 export function validateConfig(input: unknown): ValidationResult {
   const errors: string[] = [];
 
@@ -249,6 +357,9 @@ export function validateConfig(input: unknown): ValidationResult {
 
   if ("features" in obj) {
     validateFeatures(obj.features, errors);
+  }
+  if ("waitBudgetsMs" in obj) {
+    validateWaitBudgets(obj.waitBudgetsMs, errors);
   }
   if ("outputDir" in obj && typeof obj.outputDir !== "string") {
     errors.push("outputDir must be a string");

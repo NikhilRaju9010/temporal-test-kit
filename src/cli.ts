@@ -52,7 +52,7 @@ import {
 import { renderConsoleReport } from "./report/console-reporter.js";
 import { renderHtmlReport } from "./report/html-reporter.js";
 import { TestResult } from "./report/types.js";
-import { TestKitConfig, FeaturesConfig } from "./config/schema.js";
+import { TestKitConfig, FeaturesConfig, WaitBudgetsConfig } from "./config/schema.js";
 import { CATALOG } from "./catalog.js";
 
 const CONFIG_FILENAME = "temporal-test-kit.config.json";
@@ -105,6 +105,7 @@ type ZeroFixtureCheckFn = (
   env: EphemeralEnvironment,
   target: WorkerTarget & { workflowType: string },
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ) => Promise<TestResult>;
 
 /**
@@ -160,6 +161,7 @@ async function zeroFixtureDynamicResults(
                 activities,
               },
               signal,
+              config.waitBudgetsMs,
             ),
           {
             id: entry.id,
@@ -253,7 +255,7 @@ async function dynamicFixtureResults(
 
       results.push(
         await runCheckWithGuards(
-          (signal) => fn(env, { ...workflow, workflowsPath, activities }, features, signal),
+          (signal) => fn(env, { ...workflow, workflowsPath, activities }, features, signal, config.waitBudgetsMs),
           {
             id: entry.id,
             category: entry.category,

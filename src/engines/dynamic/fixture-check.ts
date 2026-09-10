@@ -1,5 +1,5 @@
 import { EphemeralEnvironment, WorkerTarget } from "./environment.js";
-import { WorkflowConfig, FeaturesConfig } from "../../config/schema.js";
+import { WorkflowConfig, FeaturesConfig, WaitBudgetsConfig } from "../../config/schema.js";
 import { TestResult } from "../../report/types.js";
 
 /**
@@ -19,4 +19,5 @@ export type DynamicFixtureCheckFn = (
   target: DynamicFixtureTarget,
   features: FeaturesConfig,
   signal?: AbortSignal,
+  waitBudgets?: WaitBudgetsConfig,
 ) => Promise<TestResult>;

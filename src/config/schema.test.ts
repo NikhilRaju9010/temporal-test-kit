@@ -133,4 +133,63 @@ describe("validateConfig", () => {
     expect(result.valid).toBe(false);
     expect(result.errors).toContain("features must be an object");
   });
+
+  describe("waitBudgetsMs", () => {
+    it("accepts a config with no waitBudgetsMs at all", () => {
+      const result = validateConfig({
+        project: "sample",
+        workerEntryPoint: "./src/worker.ts",
+        taskQueues: ["default"],
+        workflows: [{ type: "T", taskQueue: "q" }],
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    it("accepts a valid waitBudgetsMs override", () => {
+      const result = validateConfig({
+        project: "sample",
+        workerEntryPoint: "./src/worker.ts",
+        taskQueues: ["default"],
+        workflows: [{ type: "T", taskQueue: "q" }],
+        waitBudgetsMs: { A1: { waitTimeoutMs: 12000 }, F2: { childStartTimeoutMs: 9000 } },
+      });
+      expect(result.valid).toBe(true);
+    });
+
+    it("rejects a non-numeric wait budget value", () => {
+      const result = validateConfig({
+        project: "sample",
+        workerEntryPoint: "./src/worker.ts",
+        taskQueues: ["default"],
+        workflows: [{ type: "T", taskQueue: "q" }],
+        waitBudgetsMs: { A1: { waitTimeoutMs: "fast" } },
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("waitBudgetsMs.A1.waitTimeoutMs must be a positive number");
+    });
+
+    it("rejects a negative or zero wait budget value", () => {
+      const result = validateConfig({
+        project: "sample",
+        workerEntryPoint: "./src/worker.ts",
+        taskQueues: ["default"],
+        workflows: [{ type: "T", taskQueue: "q" }],
+        waitBudgetsMs: { B5: { gracePeriodMs: 0 } },
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("waitBudgetsMs.B5.gracePeriodMs must be a positive number");
+    });
+
+    it("rejects an unknown check ID under waitBudgetsMs", () => {
+      const result = validateConfig({
+        project: "sample",
+        workerEntryPoint: "./src/worker.ts",
+        taskQueues: ["default"],
+        workflows: [{ type: "T", taskQueue: "q" }],
+        waitBudgetsMs: { Z9: { somethingMs: 100 } },
+      });
+      expect(result.valid).toBe(false);
+      expect(result.errors).toContain("waitBudgetsMs.Z9 is not a recognized check ID with a configurable wait budget");
+    });
+  });
 });
