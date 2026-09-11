@@ -104,3 +104,56 @@ describe("checkC1Signals (real @temporalio/testing + sample project's Interactiv
     expect(result.message).toMatch(/1ms/);
   }, 30_000);
 });
+
+const DELAYED_EFFECT_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "c1-delayed-effect-workflow.ts");
+
+describe("checkC1Signals — polls for a real change instead of sampling the query once", () => {
+  it("passes when a signal's handler mutates queryable state only after an await (previously a false FAIL)", async () => {
+    // GreetingWorkflow here (from c1-delayed-effect-workflow.ts) has a
+    // pingSignal handler that does `await sleep('300ms')` before mutating
+    // the counter getCounterQuery reads. A single before/after sample taken
+    // immediately after handle.signal() resolves would see no change yet —
+    // reproduced against the pre-fix version of this check before landing
+    // the poll loop below. This proves the fix, not just that PASS is
+    // reachable some other way.
+    const result = await withEphemeralEnvironment((env) =>
+      checkC1Signals(
+        env,
+        {
+          type: "GreetingWorkflow",
+          taskQueue: "ttk-c1-delayed-test",
+          workflowsPath: DELAYED_EFFECT_WORKFLOWS_PATH,
+          activities: {},
+          signals: [{ name: "pingSignal", payload: undefined }],
+          queries: [{ name: "getCounterQuery" }],
+        },
+        {},
+      ),
+    );
+
+    expect(result.status).toBe("PASS");
+    expect(result.message).toMatch(/confirmed via getCounterQuery that state changed/i);
+  }, 30_000);
+
+  it("NEGATIVE CONTROL: still fails, after polling the full budget, when the signal genuinely never reaches a handler", async () => {
+    const result = await withEphemeralEnvironment((env) =>
+      checkC1Signals(
+        env,
+        {
+          type: "GreetingWorkflow",
+          taskQueue: "ttk-c1-delayed-test-2",
+          workflowsPath: DELAYED_EFFECT_WORKFLOWS_PATH,
+          activities: {},
+          signals: [{ name: "noSuchSignal", payload: undefined }],
+          queries: [{ name: "getCounterQuery" }],
+        },
+        {},
+        undefined,
+        { C1: { queryWaitMs: 700 } },
+      ),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/even after polling for up to 700ms/i);
+  }, 30_000);
+});

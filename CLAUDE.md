@@ -257,6 +257,79 @@ unmodified — both produce zero `WorkflowTaskFailed` events at all (their
 workflow code runs fine, it just legitimately blocks), so the detector
 correctly never fires for them either.
 
+## C1 polls for a query change instead of sampling it once
+
+C1 sends each `workflows[].signals[]` entry, then compares a `workflows[].queries[]`
+result taken immediately before vs. immediately after, to confirm the
+signal(s) actually reached a real handler. The AFTER sample used to be a
+single query call. That produced a real, reproducible false FAIL:
+`handle.signal()`'s promise resolves once the SERVER has accepted the
+signal, not once the WORKER has actually run its handler to completion — a
+handler that does any async work (an `await` on an activity call being the
+ordinary case) before mutating queryable state can genuinely not have run
+yet at the instant `signal()` returns. A single immediate sample cannot
+distinguish "the handler hasn't run yet" from "the handler never runs",
+which is exactly the thing C1 exists to tell apart.
+
+**Reproduced before fixing, not assumed**: a purpose-built fixture
+(`checks/fixtures/c1-delayed-effect-workflow.ts`, `pingSignal`'s handler
+does `await sleep('300ms')` before incrementing a queryable counter) FAILed
+against the pre-fix single-sample check with "returned identical state" —
+confirmed AS a false FAIL by then passing against the fixed poll-based
+version below, both runs checked directly, not inferred from the fix
+looking plausible.
+
+**The fix**: the AFTER sample is now a poll loop bounded by the SAME
+`queryWaitMs` total budget (`waitBudgetsMs.C1.queryWaitMs`, default 5000ms)
+rather than one RPC's timeout — poll every `POLL_INTERVAL_MS` (200ms),
+return as soon as a change is observed, and only report FAIL once the whole
+budget elapses with no change. This keeps the common case fast (most
+handlers mutate state well within the first poll or two) while still
+correctly catching a signal that genuinely never reaches a handler — proven
+by a negative-control test using the SAME fixture with a nonexistent signal
+name, still correctly reporting FAIL once its (short, test-scoped) budget
+is exhausted. The BEFORE sample is untouched — it's a single point-in-time
+snapshot taken before anything happens, which was never the part with a
+race, and the existing `waitBudgetsMs.C1.queryWaitMs` override test (which
+sets `queryWaitMs: 1` specifically to force the BEFORE call's own RPC
+timeout) needed no changes and still exercises exactly what it always did.
+
+### Known gap: E2 may share C1's single-shot-query false-FAIL exposure (not verified, not fixed)
+
+E2 (`e2.ts`) has two `handle.query(...)` call sites: a BASELINE sample taken
+before any signals are sent (line ~135, structurally the same as C1's
+BEFORE sample — a plain snapshot with nothing to race against, never the
+part with a bug), and a POST-RESET sample taken once a
+`WorkflowExecutionContinuedAsNew` event is found (line ~201) — a single
+query call, not a poll, exactly C1's pre-fix shape.
+
+**Why this isn't a confirmed finding, just a real risk worth tracking**:
+unlike C1 (where the query fires the instant `handle.signal()`'s promise
+resolves, with zero elapsed time for the handler to have run), E2's
+post-reset query only runs after a HISTORY-POLLING discovery loop
+(`DISCOVERY_POLL_INTERVAL_MS`, 150ms per iteration) has already found the
+`ContinuedAsNew` event — meaning real wall-clock time has already passed
+since the new run started, likely enough for its own first workflow task to
+have completed by the time the query fires. That's a materially different
+timing shape than C1's zero-delay race, and it may already be enough
+headroom in practice. It was NOT verified either way — no reproduction was
+attempted against a fixture whose new run does async work (an `await` on an
+activity call, say) before its queryable state reflects the reset, the same
+way C1's false FAIL was proven with `c1-delayed-effect-workflow.ts` before
+being fixed. This is deliberately flagged as unverified rather than
+asserted as a bug, and unresolved rather than silently assumed safe.
+
+**If this turns out to be real**, C1's fix is the direct template: replace
+the single `raceWithTimeout(handle.query(queryName), queryWaitMs, ...)` at
+the post-reset call site with a poll loop bounded by the same `queryWaitMs`
+total budget (`waitBudgetsMs.E2.queryWaitMs` already exists in the schema
+for this exact field), returning as soon as the value changes from
+`baselineState` rather than sampling once. Whoever picks this up should
+start by reproducing the false FAIL first (a fixture whose post-reset state
+mutates asynchronously) — exactly the order this was done for C1 — before
+assuming the fix is needed or that copying C1's pattern is sufficient
+without confirming E2's own call site behaves the same way once changed.
+
 ## Interrupt-safe cleanup (`src/engines/dynamic/cleanup-registry.ts`)
 
 Before I1 existed, `withEphemeralEnvironment`'s SIGINT/SIGTERM handler only

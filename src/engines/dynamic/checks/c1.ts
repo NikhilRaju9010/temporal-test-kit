@@ -8,6 +8,7 @@ import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "C1")!;
 const QUERY_WAIT_MS = 5_000;
+const POLL_INTERVAL_MS = 200;
 
 /**
  * C1 starts the workflow, sends each configured `workflows[].signals[]`
@@ -28,6 +29,20 @@ const QUERY_WAIT_MS = 5_000;
  * doesn't error and doesn't leave the workflow stuck, and reports what
  * actually happened to the query result as informational context, not a
  * pass/fail bar by itself.
+ *
+ * The AFTER query is polled, not sampled once, up to `queryWaitMs` total:
+ * `handle.signal()`'s promise resolves once the SERVER has accepted the
+ * signal, not once the WORKER has actually run its handler to completion —
+ * a handler that does any async work before mutating queryable state (an
+ * `await` on an activity call being the common case) can genuinely not have
+ * run yet at the instant `signal()` returns. A single immediate query
+ * sample cannot tell "handler hasn't run yet" apart from "handler never
+ * ran" — confirmed by reproducing this exact false FAIL against a
+ * deliberately delayed-effect fixture before this fix. Polling for a real
+ * change (not just waiting a fixed extra delay) keeps this check fast for
+ * the common case — most handlers mutate state well within the first
+ * poll — while still catching a signal that genuinely never reaches a
+ * handler once the full budget elapses with no change observed.
  */
 export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _features, signal, waitBudgets) => {
   const queryWaitMs = waitBudgets?.C1?.queryWaitMs ?? QUERY_WAIT_MS;
@@ -86,22 +101,36 @@ export const checkC1Signals: DynamicFixtureCheckFn = async (env, target, _featur
           };
         }
 
-        const afterState = await raceWithTimeout(handle.query(queryName), queryWaitMs, () => {
-          throw new Error(`query ${queryName} did not resolve within ${queryWaitMs}ms`);
-        });
+        // Poll for a real change rather than sampling once — see the file
+        // comment above for why a single immediate sample produces false
+        // FAILs against handlers that do async work before mutating state.
+        const pollDeadline = Date.now() + queryWaitMs;
+        let afterState = beforeState;
+        let changed = false;
+        while (Date.now() < pollDeadline) {
+          const remainingMs = Math.max(1, pollDeadline - Date.now());
+          afterState = await raceWithTimeout(handle.query(queryName), remainingMs, () => afterState);
+          if (JSON.stringify(afterState) !== JSON.stringify(beforeState)) {
+            changed = true;
+            break;
+          }
+          const sleepMs = Math.min(POLL_INTERVAL_MS, Math.max(0, pollDeadline - Date.now()));
+          if (sleepMs > 0) await new Promise((resolve) => setTimeout(resolve, sleepMs));
+        }
 
-        if (JSON.stringify(afterState) === JSON.stringify(beforeState)) {
+        if (!changed) {
           return {
             ...base,
             status: "FAIL" as const,
             message:
-              `${queryName} returned identical state before and after sending ${signals.length} configured ` +
-              `signal(s) to ${target.type} — the signal(s) don't appear to have reached a real handler.`,
+              `${queryName} still returned the same state as before sending ${signals.length} configured ` +
+              `signal(s) to ${target.type}, even after polling for up to ${queryWaitMs}ms — the signal(s) don't ` +
+              "appear to have reached a real handler.",
             hint:
               `Confirm each name in workflows[].signals is actually registered via setHandler() in ${target.type}, ` +
               `and that ${queryName} reads state a signal handler actually mutates. A signal Temporal accepts but ` +
               "the workflow silently ignores looks identical to a working one from the client's point of view — " +
-              "this check only catches it because the query shows no observable effect.",
+              "this check only catches it because the query shows no observable effect, even after waiting.",
           };
         }
 
