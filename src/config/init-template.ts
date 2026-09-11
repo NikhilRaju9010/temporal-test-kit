@@ -57,6 +57,18 @@ export function generateInitTemplate(): string {
         { "name": "applyDiscount", "payload": { "percent": 10 } }
       ],
 
+      // ---- Setup, not subject: lets B3, G1, L2, F1, F2, H3 reach work that
+      // sits behind a wait only a signal can release ----
+      // Sent once, right after the workflow starts, before those checks begin
+      // their own observation or fault injection. Use this when the activity
+      // (or startChild) a check names is gated behind something like
+      // "await condition(() => approved)" with no timeout — without it the
+      // check can only report "never invoked". No check grades these; omitting
+      // the field leaves every check behaving exactly as it did before.
+      // "primingSignals": [
+      //   { "name": "clientConsentReceived", "payload": { "accountId": "acct-001" } }
+      // ],
+
       // ---- Unlocks: C2 (query read-only check) ----
       "queries": [
         { "name": "getStatus" }

@@ -257,6 +257,49 @@ engine (`project`, `workerEntryPoint`, `taskQueues`, `workflows[].type`,
 don't add those fields to the schema early; extend it when Phase 3 actually
 starts consuming them.
 
+## Priming signals (`primingSignals`)
+
+`waitBudgetsMs` addresses checks that are too SLOW. `primingSignals`
+addresses checks whose target is UNREACHABLE — a distinction worth keeping
+sharp, because the failure messages look similar and the fixes do not
+overlap at all. A workflow that parks on `await condition(() => approved)`
+with no timeout never schedules the activity B3/G1/L2 names, and never
+reaches the `startChild()` F1/F2/H3 needs; no timeout value changes that,
+it only decides how long you wait before reporting the same thing.
+
+`workflows[].primingSignals` is sent once, right after the check starts its
+workflow and before that check begins its own observation or fault
+injection, via the single shared `sendPrimingSignals` helper in
+`src/engines/dynamic/priming.ts`. Six checks call it; one implementation on
+purpose, since six copies of "loop and signal" is what drifts once one of
+them grows a nuance.
+
+Deliberately separate from `signals` rather than reusing it: `signals` is
+the SUBJECT of C1/C5/E2 (are they received, deduplicated, handled without
+stalling), and quietly firing that same list as setup inside six other
+checks would mean a config written to test signal handling silently changes
+what six unrelated checks execute. Setup and subject stay distinct.
+
+Three limits are inherent, not incidental, and are documented in README:
+priming reaches only the workflow the check started (for F1/F2/H3 that's
+the PARENT — a child blocking on its own signal isn't reachable, since
+there's no handle to it until it has started); signals are sent
+unconditionally in configured order without waiting for a particular state
+(safe because Temporal buffers a signal arriving before its `setHandler`);
+and priming cannot satisfy a per-stage gate a workflow deliberately re-arms
+before each wait (e.g. resetting its decision variable to `null` immediately
+before `condition(...)`, specifically so an earlier stage's answer can't be
+mistaken for a later, different one) — confirmed against a real downstream
+project with exactly that pattern: priming reached its first gate but not
+subsequent ones reset this way. See README's "Priming signals" section for
+the concrete example and reasoning; this is a real, verified boundary of the
+feature, not a hypothetical edge case.
+
+An absent/empty/null `primingSignals` is a no-op, so a project that never
+sets it behaves exactly as before — asserted directly by a "sends no
+signals by default" test per check plus `priming.test.ts`, on top of the
+before/after full-suite diff.
+
 ## Configurable per-check wait budgets (`waitBudgetsMs`)
 
 28 of the dynamic checks hardcode an internal "how long do we wait before
@@ -464,6 +507,63 @@ waits (D2/D3's real-time Schedule waits, several checks' own 5-15s
 query/result timeouts, summed across every workflow entry × ~49 checks),
 never the collision bug itself; the e2e test stays in `test:e2e` rather than
 moving to the default suite for that reason.
+
+### Known gap: `waitBudgetsMs` overrides are not bounded by `DEFAULT_CHECK_TIMEOUT_MS`, and exceeding it silently converts FAIL into ERRORED
+
+`DEFAULT_CHECK_TIMEOUT_MS` (15s, above) is the outer ceiling every check runs
+under, enforced by `runCheckWithGuards` regardless of what that check does
+internally. `waitBudgetsMs` (see the section below) lets a project override
+a check's own INNER wait — but nothing in `src/config/schema.ts`'s
+`WAIT_BUDGET_FIELDS`/`validateWaitBudgets` checks an override against this
+outer ceiling, and the outer ceiling itself has no corresponding config
+field. The two numbers are silently independent, and only one of them is
+adjustable.
+
+**Reproduced against a real downstream project** (not one of this repo's
+own fixtures) while verifying `primingSignals` end-to-end: that project's
+dependency activity uses `initialInterval: 5s, backoffCoefficient: 2`, so
+its retries land at t≈0s, t≈5s, t≈15s — and L2's fault injection recovers on
+the 3rd attempt, right at that ≈15s mark. With `L2.resultWaitMs` at its 10s
+default, L2 reported a normal `FAIL` ("only attempted once — the simulated
+outage never actually took effect") — an accurate result, just one that
+needed a longer budget to see the real behavior. Raising
+`L2.resultWaitMs` to 45000 via `waitBudgetsMs` (exactly what the feature is
+for) did not produce the expected PASS. It produced:
+
+```
+[ERRORED] L2 A dependency outage doesn't lose work — Check L2 timed out: Check timed out after 15000ms
+```
+
+The 45s inner override never gets a chance to matter — `runCheckWithGuards`'s
+own unconfigurable 15s ceiling fires first and reports `ERRORED` instead.
+This is a real trap for exactly the case the feature exists for: a project
+whose real timing needs a wait budget *larger than 15s* cannot get one, no
+matter what value is set, and the failure mode isn't "override ignored" or
+a validation error — it's a category change from FAIL (a real, readable
+finding) to ERRORED (indistinguishable, from the report alone, from a bug
+in the check's own code).
+
+**Not fixed here** — found incidentally while verifying a downstream
+project's results, out of scope for that work. Whoever picks this up needs
+to decide the actual fix, not just patch around the symptom:
+
+- Minimal: add a `checkTimeoutMs` field to `WAIT_BUDGET_FIELDS` for every
+  check ID, read by `runCheckWithGuards` per-check the same way each check
+  already reads its own inner budget. Weigh this against the "per-check, not
+  global" reasoning the `waitBudgetsMs` section below gives for keeping
+  budgets independent rather than shared — a second number per check that
+  must be kept above the first is exactly the "one number, two places, easy
+  to drift" shape that reasoning warns about, just one level up. Two
+  alternatives that avoid adding a second field per check: derive the outer
+  ceiling FROM whatever inner override is set
+  (e.g. `outerTimeout = max(DEFAULT_CHECK_TIMEOUT_MS, innerOverride + margin)`
+  computed once per check in `runCheckWithGuards`, no new config field), or
+  `validateWaitBudgets` should reject/warn on an inner override that exceeds
+  the outer ceiling rather than silently accepting a value that can never
+  take effect. Whichever direction is chosen, add a regression test that
+  sets an inner override above 15s and asserts the result is PASS/FAIL, not
+  ERRORED — the gap above shipped with 303 passing tests specifically
+  because no existing test set an override anywhere near that boundary.
 
 ## Workflow ID convention
 

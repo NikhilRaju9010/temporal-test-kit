@@ -114,6 +114,7 @@ fixture data that unlocks specific checks:
   "sampleInput": { "id": "test-1" },       // A1 (happy path), A3 (duplicate-start), A4 (data round-trip)
   "isLongRunning": false,                   // E2 (Continue-As-New state preservation)
   "signals": [{ "name": "cancel", "payload": null }],   // C1, C5 — name must match a real setHandler() in your workflow
+  "primingSignals": [{ "name": "approve", "payload": null }], // setup for B3, G1, L2, F1, F2, H3 — see "Priming signals" below
   "queries": [{ "name": "getStatus" }],                  // C2 — name must match a real setHandler() in your workflow
   "updates": [{ "name": "rename", "validInput": "x", "invalidInput": "" }], // C3, C4 (needs features.updates/updateWithStart)
   "sagaFailurePoint": "chargeCardActivity",  // G1 — name of an activity to force-fail
@@ -167,6 +168,66 @@ default behavior exactly as-is. There is deliberately no single global
 timeout knob — these values aren't a shared setting, they're independent
 budgets that happen to reuse similar numbers today; raising one must never
 silently raise an unrelated check's.
+
+### Priming signals
+
+`waitBudgetsMs` helps when a check is merely *slow*. It does nothing when a
+check's target is **unreachable** — when the activity a check names sits
+behind a wait the workflow cannot leave on its own:
+
+```ts
+await condition(() => consentReceived);   // no timeout — only a signal releases this
+await submitTransferActivity(...);        // B3/G1/L2 can never reach this
+```
+
+No timeout value fixes that; waiting longer just fails later. Set
+`workflows[].primingSignals` and B3, G1, L2, F1, F2 and H3 will send those
+signals once, immediately after starting the workflow and before beginning
+their own observation or fault injection:
+
+```jsonc
+"primingSignals": [
+  { "name": "clientConsentReceived", "payload": { "accountId": "acct-001" } }
+]
+```
+
+This is deliberately separate from `signals`. `signals` is the *subject* of
+C1/C5/E2 — are signals received, deduplicated, handled without stalling.
+`primingSignals` is *setup*: no check grades them, they exist only to get the
+workflow to the state where the real check can begin. That separation is what
+lets a gated check exercise the workflow's own primary path instead of being
+retargeted at some lower-stakes activity that happens to run earlier.
+
+Three limits worth knowing:
+
+- **They prime the workflow the check started, not its children.** For F1/F2/H3
+  that means the *parent*. A child that blocks on its own signal is not
+  reachable this way — the check has no handle to it until after it has
+  started.
+- **They are sent unconditionally, once, in configured order**, with no
+  waiting for a particular state first. Temporal buffers a signal that arrives
+  before its `setHandler` registration, so sending immediately after start is
+  safe; ordering between them is preserved because they're awaited in sequence.
+- **They cannot satisfy a gate the workflow re-arms after start.** Some
+  workflows deliberately clear their own decision variable immediately
+  before each wait — e.g. `decision = null; await condition(() => decision)`
+  — specifically so a stale answer from an earlier, different approval can't
+  silently satisfy a later one. That's correct behavior for the workflow (a
+  real finance-app example: a `null`-reset right before an advisor-approval
+  wait, so an unrelated consent given earlier in the run can't be mistaken
+  for this approval), but it also means priming that signal before the
+  workflow reaches that wait sends it into the void — the workflow hasn't
+  registered its handler for *this* wait yet, and by the time it does, the
+  earlier signal is gone. Verified against a real project with this exact
+  pattern: `primingSignals` reached its first gate but not later ones reset
+  this way. Priming only helps when the workflow's wait is armed for the
+  whole run (its handler set once, at the top, like the consent examples
+  above) — not when it's re-armed per-stage. There is currently no way to
+  send a priming signal only after the workflow reaches a particular
+  state; if your project needs that, `primingSignals` won't get you there.
+
+Omitting `primingSignals` sends nothing and leaves every check's behavior
+identical to before the field existed.
 
 | Check | Field(s) | Default(s) |
 |---|---|---|

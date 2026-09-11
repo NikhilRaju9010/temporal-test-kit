@@ -7,6 +7,7 @@ import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId, HistoryEvent } from "../child-workflow-events.js";
 import { raceWithTimeout } from "../race.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "F1")!;
@@ -76,6 +77,12 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
         workflowId: probeWorkflowId,
         args,
       });
+
+      // SITE 1 of 2 — the discovery probe. This MUST be primed as well as the
+      // real run below: discovery is what learns which activity the child
+      // invokes, so an unprimed probe finds nothing and the check bails out
+      // before the fault-injected run ever happens.
+      await sendPrimingSignals(handle, target.primingSignals);
 
       try {
         const parentDeadline = Date.now() + discoveryTimeoutMs;
@@ -150,6 +157,8 @@ export const checkF1FailingChildHandled: DynamicFixtureCheckFn = async (env, tar
           workflowId,
           args,
         });
+        // SITE 2 of 2 — the fault-injected run (see SITE 1 above).
+        await sendPrimingSignals(handle, target.primingSignals);
         await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
         return handle.fetchHistory();
       },

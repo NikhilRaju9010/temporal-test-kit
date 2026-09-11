@@ -7,6 +7,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "L2")!;
@@ -124,6 +125,9 @@ export const checkL2DependencyOutageRecovery: DynamicFixtureCheckFn = async (env
         workflowId,
         args,
       });
+      // Drive past any precondition the workflow waits on indefinitely, so the
+      // dependency activity is actually reached and can be forced into outage.
+      await sendPrimingSignals(handle, target.primingSignals);
       await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
       return handle.fetchHistory();
     }, signal);

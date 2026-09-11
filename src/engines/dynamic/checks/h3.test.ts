@@ -130,3 +130,46 @@ describe("checkH3CancelParentHandlesChildren (real @temporalio/testing + sample 
     expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
   }, 30_000);
 });
+
+const PRIMING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "priming-gated-workflows.ts");
+const loadPrimingActivities = () => import(join(import.meta.dirname, "fixtures", "priming-activities.ts"));
+
+describe("checkH3CancelParentHandlesChildren — workflows[].primingSignals", () => {
+  it("reaches a startChild() gated behind an unbounded signal wait when primingSignals is configured", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkH3CancelParentHandlesChildren(
+        env,
+        {
+          type: "GatedParentWorkflow",
+          taskQueue: "ttk-h3-priming",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+          primingSignals: [{ name: "unlockSignal", payload: undefined }],
+        },
+        {},
+      ),
+    );
+    expect(result.message).not.toContain("never actually started a child workflow");
+  }, 90_000);
+
+  it("DEFAULT (no primingSignals): sends nothing, so the parent never reaches startChild() and the check reports exactly what it always did", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkH3CancelParentHandlesChildren(
+        env,
+        {
+          type: "GatedParentWorkflow",
+          taskQueue: "ttk-h3-priming-default",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+        },
+        {},
+      ),
+    );
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toContain("never actually started a child workflow");
+  }, 90_000);
+});

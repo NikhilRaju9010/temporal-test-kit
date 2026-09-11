@@ -33,6 +33,25 @@ export interface WorkflowConfig {
   isLongRunning?: boolean;
   usesTimers?: boolean;
   signals?: SignalConfig[];
+  /**
+   * Signals sent ONCE, immediately after the workflow is started and before a
+   * fixture check begins its own observation or fault injection — purely to
+   * drive the workflow past a precondition it cannot leave on its own.
+   *
+   * This exists because a check like B3/G1/L2 names an activity to exercise,
+   * but a workflow may gate that activity behind a human decision it waits on
+   * indefinitely (`await condition(() => consentReceived)` with no timeout).
+   * Without priming, the named activity is never scheduled and the check can
+   * only report "never invoked" — it never gets to test the thing it exists to
+   * test. Priming lets those checks reach the activity through the workflow's
+   * own real path rather than a lower-stakes substitute.
+   *
+   * Distinct from `signals`, which is the SUBJECT of C1/C5/E2 (are signals
+   * received, deduplicated, handled without stalling). These are setup, not
+   * subject: no check grades them, and omitting them leaves every check's
+   * behavior exactly as it was before this field existed.
+   */
+  primingSignals?: SignalConfig[];
   queries?: QueryConfig[];
   updates?: UpdateConfig[];
   sagaFailurePoint?: string;
@@ -220,6 +239,13 @@ function validateWorkflow(wf: unknown, index: number, errors: string[]): void {
       errors.push(`${path}.signals must be an array`);
     } else {
       wf.signals.forEach((s, i) => validateSignal(s, `${path}.signals[${i}]`, errors));
+    }
+  }
+  if ("primingSignals" in wf) {
+    if (!Array.isArray(wf.primingSignals)) {
+      errors.push(`${path}.primingSignals must be an array`);
+    } else {
+      wf.primingSignals.forEach((s, i) => validateSignal(s, `${path}.primingSignals[${i}]`, errors));
     }
   }
   if ("queries" in wf) {

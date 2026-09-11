@@ -7,6 +7,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B3")!;
@@ -102,6 +103,9 @@ export const checkB3Idempotency: DynamicFixtureCheckFn = async (env, target, _fe
         workflowId,
         args,
       });
+      // Drive past any precondition the workflow waits on indefinitely, so the
+      // named activity is actually reachable for the forced retry below.
+      await sendPrimingSignals(handle, target.primingSignals);
       await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
       return handle.fetchHistory();
     }, signal);

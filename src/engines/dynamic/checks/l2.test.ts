@@ -128,3 +128,47 @@ describe("checkL2DependencyOutageRecovery (real @temporalio/testing + sample pro
     expect(elapsedMs).toBeLessThan(15_000); // generous margin over the 10000ms default for full-suite-load overhead
   }, 30_000);
 });
+
+const PRIMING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "priming-gated-workflows.ts");
+const loadPrimingActivities = () => import(join(import.meta.dirname, "fixtures", "priming-activities.ts"));
+
+describe("checkL2DependencyOutageRecovery — workflows[].primingSignals", () => {
+  it("reaches a dependency activity gated behind an unbounded signal wait when primingSignals is configured", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkL2DependencyOutageRecovery(
+        env,
+        {
+          type: "GatedWorkflow",
+          taskQueue: "ttk-l2-priming",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          dependencyOutageTestActivity: "gatedActivity",
+          primingSignals: [{ name: "unlockSignal", payload: undefined }],
+        },
+        {},
+      ),
+    );
+    expect(result.status).toBe("PASS");
+    expect(result.message).not.toContain("never actually invoked");
+  }, 60_000);
+
+  it("DEFAULT (no primingSignals): sends nothing, so the dependency activity stays unreachable and the check reports exactly what it always did", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkL2DependencyOutageRecovery(
+        env,
+        {
+          type: "GatedWorkflow",
+          taskQueue: "ttk-l2-priming-default",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          dependencyOutageTestActivity: "gatedActivity",
+        },
+        {},
+      ),
+    );
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toContain("never actually invoked gatedActivity");
+  }, 60_000);
+});

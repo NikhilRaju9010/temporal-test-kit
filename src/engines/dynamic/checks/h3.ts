@@ -5,6 +5,7 @@ import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { EventType, findChildWorkflowId } from "../child-workflow-events.js";
 import { raceWithTimeout } from "../race.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "H3")!;
@@ -77,6 +78,12 @@ export const checkH3CancelParentHandlesChildren: DynamicFixtureCheckFn = async (
         workflowId,
         args,
       });
+
+      // Drive the PARENT past any precondition it waits on indefinitely, so it
+      // actually reaches its startChild() call. Note this primes the parent
+      // only — a child that blocks on its own signal is not reachable here,
+      // since this check has no handle to it until after it has started.
+      await sendPrimingSignals(handle, target.primingSignals);
 
       let childWorkflowId: string | undefined;
       const discoverDeadline = Date.now() + childStartTimeoutMs;

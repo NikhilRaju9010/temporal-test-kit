@@ -109,6 +109,58 @@ describe("validateConfig", () => {
     expect(result.errors).toContain("workflows[0].signals[0].name is required and must be a string");
   });
 
+  it("accepts a workflow with primingSignals", () => {
+    const result = validateConfig({
+      project: "sample",
+      workerEntryPoint: "./src/worker.ts",
+      taskQueues: ["default"],
+      workflows: [
+        {
+          type: "OrderWorkflow",
+          taskQueue: "orders",
+          primingSignals: [{ name: "clientConsentReceived", payload: { accountId: "acct-001" } }],
+        },
+      ],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
+  it("rejects a workflow whose primingSignals field is not an array", () => {
+    const result = validateConfig({
+      project: "sample",
+      workerEntryPoint: "./src/worker.ts",
+      taskQueues: ["default"],
+      workflows: [{ type: "OrderWorkflow", taskQueue: "orders", primingSignals: "not-an-array" }],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("workflows[0].primingSignals must be an array");
+  });
+
+  it("rejects a primingSignals entry missing a name", () => {
+    const result = validateConfig({
+      project: "sample",
+      workerEntryPoint: "./src/worker.ts",
+      taskQueues: ["default"],
+      workflows: [{ type: "OrderWorkflow", taskQueue: "orders", primingSignals: [{ payload: {} }] }],
+    });
+
+    expect(result.valid).toBe(false);
+    expect(result.errors).toContain("workflows[0].primingSignals[0].name is required and must be a string");
+  });
+
+  it("accepts a config that omits primingSignals entirely — the field is optional and non-gating", () => {
+    const result = validateConfig({
+      project: "sample",
+      workerEntryPoint: "./src/worker.ts",
+      taskQueues: ["default"],
+      workflows: [{ type: "OrderWorkflow", taskQueue: "orders", signals: [{ name: "s", payload: {} }] }],
+    });
+
+    expect(result.valid).toBe(true);
+  });
+
   it("rejects an update entry missing validInput/invalidInput", () => {
     const result = validateConfig({
       project: "sample",

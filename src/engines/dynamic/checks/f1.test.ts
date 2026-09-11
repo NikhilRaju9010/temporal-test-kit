@@ -103,3 +103,46 @@ describe("checkF1FailingChildHandled (real @temporalio/testing + sample project'
     expect(result.message).toMatch(/50ms/);
   }, 30_000);
 });
+
+const PRIMING_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "priming-gated-workflows.ts");
+const loadPrimingActivities = () => import(join(import.meta.dirname, "fixtures", "priming-activities.ts"));
+
+describe("checkF1FailingChildHandled — workflows[].primingSignals", () => {
+  it("reaches a startChild() gated behind an unbounded signal wait when primingSignals is configured", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkF1FailingChildHandled(
+        env,
+        {
+          type: "GatedParentWorkflow",
+          taskQueue: "ttk-f1-priming",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+          primingSignals: [{ name: "unlockSignal", payload: undefined }],
+        },
+        {},
+      ),
+    );
+    expect(result.message).not.toContain("child workflow never scheduled any activity");
+  }, 90_000);
+
+  it("DEFAULT (no primingSignals): sends nothing, so the parent never reaches startChild() and the check reports exactly what it always did", async () => {
+    const activities = await loadPrimingActivities();
+    const result = await withEphemeralEnvironment((env) =>
+      checkF1FailingChildHandled(
+        env,
+        {
+          type: "GatedParentWorkflow",
+          taskQueue: "ttk-f1-priming-default",
+          workflowsPath: PRIMING_WORKFLOWS_PATH,
+          activities,
+          hasChildWorkflows: true,
+        },
+        {},
+      ),
+    );
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toContain("child workflow never scheduled any activity");
+  }, 90_000);
+});

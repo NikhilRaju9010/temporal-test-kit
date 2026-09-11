@@ -4,6 +4,7 @@ import { missingFixtureResult } from "../require-fixture.js";
 import { withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { findChildWorkflowId } from "../child-workflow-events.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "F2")!;
@@ -86,6 +87,12 @@ export const checkF2ChildNotOrphaned: DynamicFixtureCheckFn = async (env, target
         workflowId,
         args,
       });
+
+      // Drive the PARENT past any precondition it waits on indefinitely, so it
+      // actually reaches its startChild() call. Note this primes the parent
+      // only — a child that blocks on its own signal is not reachable here,
+      // since this check has no handle to it until after it has started.
+      await sendPrimingSignals(handle, target.primingSignals);
 
       let childWorkflowId: string | undefined;
       const discoverDeadline = Date.now() + childStartTimeoutMs;

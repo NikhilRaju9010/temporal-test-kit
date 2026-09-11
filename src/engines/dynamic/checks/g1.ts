@@ -6,6 +6,7 @@ import { isFixtureMissing, missingFixtureResult } from "../require-fixture.js";
 import { withFaultInjectedWorker } from "../fault-injection.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { sendPrimingSignals } from "../priming.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "G1")!;
@@ -68,6 +69,9 @@ export const checkG1SagaCompensation: DynamicFixtureCheckFn = async (env, target
           workflowId,
           args,
         });
+        // Drive past any precondition the workflow waits on indefinitely, so the
+        // saga failure point is actually reached and can be forced to fail.
+        await sendPrimingSignals(handle, target.primingSignals);
         await raceWithTimeout(handle.result().catch(() => {}), resultWaitMs, () => undefined);
         return handle.fetchHistory();
       },
