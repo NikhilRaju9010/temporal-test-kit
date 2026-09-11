@@ -103,3 +103,59 @@ describe("checkB5CancellationStops (real @temporalio/testing, no mocked Temporal
     expect(elapsedMs).toBeLessThan(8000);
   }, 30_000);
 });
+
+const MISSING_INPUT_WORKFLOWS_PATH = join(import.meta.dirname, "fixtures", "missing-input-workflows.ts");
+
+describe("checkB5CancellationStops — distinguishing a missing-argument crash from a genuine cancellation failure", () => {
+  it("appends a missing-argument note (direct property access) but keeps status FAIL, not a silent reclassification", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "RequiresInputWorkflow",
+        taskQueue: "default",
+        workflowsPath: MISSING_INPUT_WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/did not honor the cancellation request/i);
+    expect(result.message).toMatch(/missing-argument crash/i);
+    expect(result.message).toContain("Cannot read properties of undefined (reading 'foo')");
+  }, 30_000);
+
+  it("also recognizes the destructured-parameter crash shape, not just direct property access", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "RequiresDestructuredInputWorkflow",
+        taskQueue: "default",
+        workflowsPath: MISSING_INPUT_WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/missing-argument crash/i);
+    expect(result.message).toContain("Cannot destructure property");
+  }, 30_000);
+
+  it("NEGATIVE CONTROL: does NOT append the missing-argument note for an unrelated crash that looks structurally identical (zero completed tasks either way)", async () => {
+    const activities = await loadActivities();
+
+    const result = await withEphemeralEnvironment((env) =>
+      checkB5CancellationStops(env, {
+        workflowType: "AlwaysCrashesWorkflow",
+        taskQueue: "default",
+        workflowsPath: MISSING_INPUT_WORKFLOWS_PATH,
+        activities,
+      }),
+    );
+
+    expect(result.status).toBe("FAIL");
+    expect(result.message).toMatch(/did not honor the cancellation request/i);
+    expect(result.message).not.toMatch(/missing-argument crash/i);
+  }, 30_000);
+});

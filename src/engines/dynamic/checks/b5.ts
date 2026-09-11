@@ -4,6 +4,7 @@ import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../enviro
 import { generateWorkflowId } from "../workflow-id.js";
 import { fixturePath } from "../fixture-path.js";
 import { WaitBudgetsConfig } from "../../../config/schema.js";
+import { detectPossibleMissingInputCrash, MissingInputSuspicion } from "../missing-input-detection.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "B5")!;
 
@@ -31,6 +32,9 @@ interface CancellationOutcome {
    */
   finalStatus: string;
   cancelError: string | null;
+  /** Only populated when finalStatus is "RUNNING" — see the note built from
+   * this in checkB5CancellationStops for why. */
+  missingInputSuspicion?: MissingInputSuspicion;
 }
 
 /**
@@ -80,7 +84,13 @@ async function startAndCancel(
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
     }
 
-      return { finalStatus, cancelError };
+      let missingInputSuspicion: MissingInputSuspicion | undefined;
+      if (finalStatus === "RUNNING") {
+        const history = await handle.fetchHistory().catch(() => undefined);
+        if (history) missingInputSuspicion = detectPossibleMissingInputCrash(history.events ?? []);
+      }
+
+      return { finalStatus, cancelError, missingInputSuspicion };
     },
     signal,
   );
@@ -162,10 +172,23 @@ export async function checkB5CancellationStops(
   }
 
   if (primary.finalStatus === "RUNNING") {
+    const suspicion = primary.missingInputSuspicion;
+    const missingInputNote = suspicion?.suspected
+      ? ` This looks like a missing-argument crash, not a confirmed cancellation-handling failure: the ` +
+        `workflow's very first task failed with "${suspicion.failureMessage}" — the JS error shape you get when ` +
+        `a required argument arrives as undefined — before it ever ran any of its own code, including whatever ` +
+        `cancellation handling it has. A workflow stuck failing its first task like this can't meaningfully be ` +
+        `cancelled at all (there's no running workflow code for the cancellation to reach), which is EXPECTED ` +
+        `if ${target.workflowType} requires real business input to run at all, since this is a zero-fixture ` +
+        `check with none configured — not proof this workflow's own cancellation handling is broken. It is also ` +
+        `not fully confirmed: a workflow with an unrelated bug that crashes unconditionally on ANY input would ` +
+        `look identical from here. Configuring workflows[].sampleInput for this workflow would let B5 test its ` +
+        `actual cancellation handling instead of reporting this ambiguous case.`
+      : "";
     return {
       ...base,
       status: "FAIL",
-      message: `${target.workflowType} was still RUNNING ${graceMs}ms after handle.cancel() was called — it did not honor the cancellation request.`,
+      message: `${target.workflowType} was still RUNNING ${graceMs}ms after handle.cancel() was called — it did not honor the cancellation request.${missingInputNote}`,
       hint:
         "A workflow that doesn't respond to cancellation within a reasonable time can leave orphaned executions " +
         "running indefinitely, wasting worker capacity and skipping any cleanup/compensation logic meant to run " +

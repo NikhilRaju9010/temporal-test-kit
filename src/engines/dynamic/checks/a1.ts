@@ -4,6 +4,7 @@ import { WaitBudgetsConfig } from "../../../config/schema.js";
 import { EphemeralEnvironment, WorkerTarget, withRunningWorker } from "../environment.js";
 import { generateWorkflowId } from "../workflow-id.js";
 import { raceWithTimeout } from "../race.js";
+import { detectPossibleMissingInputCrash } from "../missing-input-detection.js";
 
 const CATALOG_ENTRY = CATALOG.find((c) => c.id === "A1")!;
 
@@ -70,7 +71,29 @@ export async function checkA1WorkflowStarts(
     const description = await handle.describe();
     const statusName = description.status.name;
 
+    let missingInputNote = "";
     if (statusName === "RUNNING") {
+      // Inspect history BEFORE terminating — terminate() records its own
+      // history event but doesn't change what already happened, so this
+      // ordering isn't strictly required, but keeping it before makes the
+      // intent clear: we're diagnosing the state we found, not one we caused.
+      const history = await handle.fetchHistory().catch(() => undefined);
+      if (history) {
+        const suspicion = detectPossibleMissingInputCrash(history.events ?? []);
+        if (suspicion.suspected) {
+          missingInputNote =
+            ` This looks like a missing-argument crash, not a confirmed hang: the workflow's very first task ` +
+            `failed with "${suspicion.failureMessage}" — the JS error shape you get when a required argument ` +
+            `arrives as undefined — and every task since has failed the same way (Temporal retries a failed ` +
+            `WORKFLOW TASK forever rather than failing the workflow execution, so this looks identical to a ` +
+            `genuine hang from describe() alone). This is EXPECTED if ${target.workflowType} requires real ` +
+            `business input to run at all, since this is a zero-fixture check with none configured — not proof ` +
+            `of an actual hang bug. It is also not fully confirmed: a workflow with an unrelated bug that crashes ` +
+            `unconditionally on ANY input would look identical from here. Configuring workflows[].sampleInput ` +
+            `for this workflow would let A1 test it meaningfully instead of reporting this ambiguous case.`;
+        }
+      }
+
       // Best-effort cleanup: without this, the `handle.result()` long-poll
       // started above keeps polling indefinitely in the background for a
       // workflow that will never complete. Since checkA1 shares one
@@ -111,7 +134,7 @@ export async function checkA1WorkflowStarts(
       return {
         ...base,
         status: "FAIL",
-        message: `${target.workflowType} was still RUNNING after waiting ${waitTimeoutMs}ms for it to reach a terminal state.`,
+        message: `${target.workflowType} was still RUNNING after waiting ${waitTimeoutMs}ms for it to reach a terminal state.${missingInputNote}`,
         hint:
           `Because this is a zero-fixture check, the workflow may legitimately be waiting on a signal or query ` +
           `that this run never sent — not necessarily a bug. But a workflow that's expected to complete quickly ` +

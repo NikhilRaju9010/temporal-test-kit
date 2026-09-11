@@ -193,6 +193,70 @@ workflow" pattern (private environment, not the shared `env`) and I5/D1's
 documented exception to `withRunningWorker` where a check genuinely needs
 more than one worker lifecycle in a row.
 
+## Distinguishing a missing-argument crash from a genuine hang (A1, B5)
+
+A1 and B5 are zero-fixture: they start `target.workflowType` with `args: []`,
+since there's no `workflows[].sampleInput` to pass. A workflow that requires
+a real argument and reads it immediately (`input.someField`, or destructures
+it) throws synchronously on its very first workflow task. Temporal retries a
+failed WORKFLOW TASK forever rather than failing the WORKFLOW EXECUTION, so
+from `describe()` alone this reports RUNNING forever — identical, from the
+outside, to a genuine hang (an unmet `condition()`, a missing signal
+handler). A1's and B5's messages used to say "still RUNNING" either way,
+which reads as "this workflow hangs" even when the real story is "this
+workflow was never given the argument it needs."
+
+`src/engines/dynamic/missing-input-detection.ts`'s `detectPossibleMissingInputCrash`
+narrows this: it only reports a suspicion when EVERY task so far has failed
+(zero `WorkflowTaskCompleted` ever) AND the first failure's message matches
+one of the real V8 shapes for "accessed a property of / destructured
+null-or-undefined" — verified empirically (`node -e` repro) for both direct
+property access (`Cannot read properties of undefined (reading 'x')`) and
+destructuring, parameter or local (`Cannot destructure property 'x' of
+'...' as it is undefined`), since workflow authors reach a required argument
+either way and each produces different wording.
+
+**Deliberately does not change `status` to `N_A` or anything but `FAIL`.**
+This was an explicit design call, not an oversight: the message-shape check
+is a heuristic on error text, not a proof of cause. A workflow with a real,
+unrelated bug that crashes unconditionally on ANY input — including
+correct input — produces the exact same structural signature (first task
+fails, zero completed tasks, retried forever) and could theoretically
+coincide with a similar-looking message. Reclassifying to `N_A` risks
+silently hiding that second, genuinely-broken case from the report — worse
+than the misleading-but-visible message it would fix. So A1/B5 keep
+reporting `FAIL` unconditionally when a workflow never leaves RUNNING, and
+only ADD an explanatory note — never remove or soften the FAIL — when the
+heuristic matches, always including the raw underlying error message
+verbatim so a human reviewer can judge the heuristic's call themselves
+rather than trust it blindly. This mirrors the same principle behind G1's
+own compensation-activity note (see its file comment): an inference this
+check cannot fully verify goes into the message as context, never as a
+silent status change.
+
+Both checks compute this the same way — fetch history only in the
+already-RUNNING branch (no extra work in the common PASS/immediate-FAIL
+paths), never before terminating/observing, so the check's own timing
+behavior is unchanged. B5 computes it inside `startAndCancel` (shared by its
+primary-target and control-fixture calls) but only surfaces the note for the
+PRIMARY target's own RUNNING branch — the control fixture is a tool-owned
+workflow with no required arguments by construction, so this can never
+legitimately fire there, and wiring it in for both would have been dead
+code, not extra safety.
+
+Tested against three fixtures in `checks/fixtures/missing-input-workflows.ts`:
+`RequiresInputWorkflow` (direct access) and `RequiresDestructuredInputWorkflow`
+(destructured parameter) as true positives with DIFFERENT real V8 message
+shapes, and `AlwaysCrashesWorkflow` (unconditional `throw new Error(...)`,
+zero relation to any argument) as the negative control proving the
+message-shape check — not just the zero-completed-tasks structural
+check — is what gates the note. A1's and B5's own pre-existing "genuine
+hang" fixture tests (`a1-hanging-workflow.ts`'s `condition(() => false)`,
+B5's `nonCancellable`-shielding fixture) needed no changes and still pass
+unmodified — both produce zero `WorkflowTaskFailed` events at all (their
+workflow code runs fine, it just legitimately blocks), so the detector
+correctly never fires for them either.
+
 ## Interrupt-safe cleanup (`src/engines/dynamic/cleanup-registry.ts`)
 
 Before I1 existed, `withEphemeralEnvironment`'s SIGINT/SIGTERM handler only
